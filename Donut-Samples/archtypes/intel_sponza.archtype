@@ -1,0 +1,16 @@
+{
+	"name": "IntelSponza",
+	"attributes": {
+		"Name": {
+			"value": "IntelSponza"
+		},
+		"Model": {
+			"path": "media/IntelSponza/NewSponza_Main_glTF_003.gltf"
+		},
+		"Transform": {
+			"translation": [ 0.0, 0.0, 0.0 ],
+			"rotation": [ 0.0, 0.0, 0.0, 1.0 ],
+			"scaling": [ 1.0, 1.0, 1.0 ]
+		}
+	}
+}

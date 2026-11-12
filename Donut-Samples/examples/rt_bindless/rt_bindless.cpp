@@ -33,11 +33,16 @@
 #include <donut/render/ToneMappingPasses.h>
 #include <donut/render/SkyPass.h>
 #include <donut/app/DeviceManager.h>
+#include <donut/app/imgui_renderer.h>
+#include <donut/ecs/Attribute.h>
+#include <donut/ecs/Stage.h>
 #include <donut/core/log.h>
 #include <donut/core/vfs/VFS.h>
 #include <donut/core/math/math.h>
 #include <nvrhi/utils.h>
+#include <algorithm>
 #include <cstring>
+#include <string>
 
 using namespace donut;
 using namespace donut::math;
@@ -54,6 +59,187 @@ struct FrameConstants
     uint32_t historyValid = 0;
     float blend = 0.1f;
     float pad = 0.f;
+};
+
+class StagePanelUI : public app::ImGui_Renderer
+{
+public:
+    StagePanelUI(app::DeviceManager* deviceManager, ecs::Stage& stage)
+        : ImGui_Renderer(deviceManager)
+        , m_Stage(stage)
+    {
+        ImGui::GetIO().IniFilename = nullptr;
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.Colors[ImGuiCol_Header] = ImVec4(0.18f, 0.52f, 0.24f, 1.00f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.66f, 0.31f, 1.00f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.14f, 0.42f, 0.19f, 1.00f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.18f, 0.52f, 0.24f, 1.00f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.66f, 0.31f, 1.00f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.14f, 0.42f, 0.19f, 1.00f);
+    }
+
+protected:
+    void buildUI() override
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        const float width = 380.f;
+        const float margin = 16.f;
+
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - width - margin, margin), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(width, io.DisplaySize.y * 0.42f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Hierarchy"))
+        {
+            ImGui::Text("Stage: %s", m_Stage.GetName().c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%zu prims)", m_Stage.GetPrimCount());
+            ImGui::Separator();
+
+            for (ecs::Prim prim : m_Stage.GetPrims())
+            {
+                if (!prim.IsValid())
+                    continue;
+
+                std::string label;
+                if (prim.HasAttribute<ecs::NameAttribute>())
+                    label = prim.GetAttribute<ecs::NameAttribute>().value;
+                else
+                    label = "Prim " + std::to_string(uint32_t(prim.GetEntity()));
+
+                const bool selected = (m_Selected == prim.GetEntity());
+                ImGui::PushID(int(uint32_t(prim.GetEntity())));
+                if (ImGui::Selectable(label.c_str(), selected))
+                    m_Selected = prim.GetEntity();
+                ImGui::PopID();
+            }
+        }
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - width - margin, io.DisplaySize.y * 0.42f + margin * 2.f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(width, io.DisplaySize.y * 0.58f - margin * 3.f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Details"))
+        {
+            ecs::Prim selectedPrim;
+            if (m_Selected != entt::null)
+                selectedPrim = ecs::Prim(m_Stage.GetRegistry(), m_Selected);
+
+            if (!selectedPrim.IsValid())
+            {
+                ImGui::TextDisabled("Select a Prim in the Hierarchy.");
+            }
+            else
+            {
+                DrawDetails(selectedPrim);
+            }
+        }
+        ImGui::End();
+    }
+
+private:
+    static bool InputStringField(const char* label, std::string& value)
+    {
+        char buffer[512];
+        const size_t length = std::min(value.size(), sizeof(buffer) - 1);
+        memcpy(buffer, value.data(), length);
+        buffer[length] = '\0';
+        if (ImGui::InputText(label, buffer, sizeof(buffer)))
+        {
+            value = buffer;
+            return true;
+        }
+        return false;
+    }
+
+    template<typename T, typename Editor>
+    void DrawAttributeSection(ecs::Prim prim, const char* name, Editor editor)
+    {
+        if (!prim.HasAttribute<T>())
+            return;
+
+        ImGui::PushID(name);
+        if (ImGui::CollapsingHeader(name, ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            T& attribute = prim.GetAttribute<T>();
+            editor(attribute);
+            ImGui::Spacing();
+            if (ImGui::Button("Remove Attribute"))
+                ecs::AttributeRegistry::Get().Remove(prim.GetRegistry(), prim.GetEntity(), name);
+        }
+        ImGui::PopID();
+    }
+
+    void DrawDetails(ecs::Prim prim)
+    {
+        entt::entity entity = prim.GetEntity();
+
+        ImGui::Text("Prim: %s", prim.HasAttribute<ecs::NameAttribute>()
+            ? prim.GetAttribute<ecs::NameAttribute>().value.c_str()
+            : "(unnamed)");
+        ImGui::SameLine();
+        ImGui::TextDisabled("#%u", uint32_t(entity));
+        ImGui::Separator();
+
+        if (ImGui::Button("+ Add Attribute"))
+            ImGui::OpenPopup("AddAttributePopup");
+
+        if (ImGui::BeginPopup("AddAttributePopup"))
+        {
+            bool any = false;
+            for (const std::string& name : ecs::AttributeRegistry::Get().GetAttributeNames())
+            {
+                if (ecs::AttributeRegistry::Get().Has(m_Stage.GetRegistry(), entity, name))
+                    continue;
+                any = true;
+                if (ImGui::MenuItem(name.c_str()))
+                    ecs::AttributeRegistry::Get().AddDefault(m_Stage.GetRegistry(), entity, name);
+            }
+            if (!any)
+                ImGui::TextDisabled("All attributes present");
+            ImGui::EndPopup();
+        }
+
+        ImGui::Separator();
+
+        DrawAttributeSection<ecs::NameAttribute>(prim, "Name", [](ecs::NameAttribute& a) { InputStringField("Name", a.value); });
+        DrawAttributeSection<ecs::TagAttribute>(prim, "Tag", [](ecs::TagAttribute& a) { InputStringField("Tag", a.value); });
+        DrawAttributeSection<ecs::TransformAttribute>(prim, "Transform", [](ecs::TransformAttribute& a)
+        {
+            ImGui::DragFloat3("Translation", &a.translation.x, 0.05f);
+            ImGui::DragFloat4("Rotation", &a.rotation.x, 0.01f);
+            ImGui::DragFloat3("Scaling", &a.scaling.x, 0.05f);
+        });
+        DrawAttributeSection<ecs::CameraAttribute>(prim, "Camera", [](ecs::CameraAttribute& a)
+        {
+            ImGui::DragFloat3("Position", &a.position.x, 0.05f);
+            ImGui::DragFloat3("Target", &a.target.x, 0.05f);
+            ImGui::DragFloat3("Up", &a.up.x, 0.05f);
+            ImGui::DragFloat("FOV (deg)", &a.fovDegrees, 0.5f, 1.f, 179.f);
+            ImGui::DragFloat("Near", &a.zNear, 0.001f, 0.001f, 10.f);
+            ImGui::DragFloat("Far", &a.zFar, 1.f, 1.f, 100000.f);
+        });
+        DrawAttributeSection<ecs::DirectionalLightAttribute>(prim, "DirectionalLight", [](ecs::DirectionalLightAttribute& a)
+        {
+            ImGui::DragFloat3("Direction", &a.direction.x, 0.01f);
+            ImGui::DragFloat3("Color", &a.color.x, 0.01f);
+            ImGui::DragFloat("Irradiance", &a.irradiance, 0.05f, 0.f, 100.f);
+            ImGui::DragFloat("Angular Size", &a.angularSize, 0.01f, 0.1f, 90.f);
+        });
+        DrawAttributeSection<ecs::SkyAttribute>(prim, "Sky", [](ecs::SkyAttribute& a)
+        {
+            ImGui::DragFloat3("Sky Color", &a.skyColor.x, 0.01f);
+            ImGui::DragFloat3("Horizon Color", &a.horizonColor.x, 0.01f);
+            ImGui::DragFloat3("Ground Color", &a.groundColor.x, 0.01f);
+            ImGui::DragFloat("Brightness", &a.brightness, 0.005f, 0.f, 10.f);
+            ImGui::DragFloat("Horizon Size", &a.horizonSize, 0.5f, 0.f, 90.f);
+            ImGui::DragFloat("Glow Size", &a.glowSize, 0.1f, 0.f, 90.f);
+            ImGui::DragFloat("Glow Intensity", &a.glowIntensity, 0.01f, 0.f, 1.f);
+            ImGui::DragFloat("Glow Sharpness", &a.glowSharpness, 0.1f, 1.f, 10.f);
+        });
+        DrawAttributeSection<ecs::ModelAttribute>(prim, "Model", [](ecs::ModelAttribute& a) { InputStringField("Path", a.path); });
+    }
+
+    ecs::Stage& m_Stage;
+    entt::entity m_Selected = entt::null;
 };
 
 class BindlessRayTracing : public app::ApplicationBase
@@ -97,13 +283,40 @@ private:
     std::shared_ptr<engine::DirectionalLight> m_SunLight;
     std::unique_ptr<engine::BindingCache> m_BindingCache;
 
+    std::unique_ptr<ecs::Stage> m_EcsStage;
+    std::shared_ptr<StagePanelUI> m_StageUI;
+    bool m_StageUIAdded = false;
+
     bool m_EnableAnimations = false;
     float m_WallclockTime = 0.f;
 
 public:
     using ApplicationBase::ApplicationBase;
 
-    bool Init(bool useRayQuery, const std::filesystem::path& sceneFileName)
+    ~BindlessRayTracing() override
+    {
+        RemoveUIRenderPass();
+    }
+
+    void AddUIRenderPass()
+    {
+        if (m_StageUI && !m_StageUIAdded)
+        {
+            GetDeviceManager()->AddRenderPassToBack(m_StageUI.get());
+            m_StageUIAdded = true;
+        }
+    }
+
+    void RemoveUIRenderPass()
+    {
+        if (m_StageUI && m_StageUIAdded)
+        {
+            GetDeviceManager()->RemoveRenderPass(m_StageUI.get());
+            m_StageUIAdded = false;
+        }
+    }
+
+    bool Init(bool useRayQuery, const std::filesystem::path& sceneFileName, const std::filesystem::path& stageFileName)
     {
         std::filesystem::path frameworkShaderPath = app::GetDirectoryWithExecutable() / "shaders/framework" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
         std::filesystem::path appShaderPath = app::GetDirectoryWithExecutable() / "shaders/rt_bindless" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
@@ -196,6 +409,20 @@ public:
         GetDevice()->executeCommandList(m_CommandList);
 
         GetDevice()->waitForIdle();
+
+        if (!stageFileName.empty())
+        {
+            m_EcsStage = std::make_unique<ecs::Stage>();
+            if (!m_EcsStage->Load(stageFileName))
+                log::warning("Failed to load stage '%s'", stageFileName.generic_string().c_str());
+
+            m_StageUI = std::make_shared<StagePanelUI>(GetDeviceManager(), *m_EcsStage);
+            if (!m_StageUI->Init(m_ShaderFactory))
+            {
+                m_StageUI.reset();
+                return false;
+            }
+        }
 
         return true;
     }
@@ -646,6 +873,7 @@ int main(int __argc, const char** __argv)
 
     bool useRayQuery = false;
     std::filesystem::path sceneFileName = app::GetDirectoryWithExecutable().parent_path() / "media/intel-sponza.scene.json";
+    std::filesystem::path stageFileName = app::GetDirectoryWithExecutable().parent_path() / "stages/intel_sponza.stage";
     for (int i = 1; i < __argc; i++)
     {
         if (strcmp(__argv[i], "-rayQuery") == 0)
@@ -659,9 +887,14 @@ int main(int __argc, const char** __argv)
         }
         else if (__argv[i][0] != '-')
         {
-            sceneFileName = __argv[i];
-            if (sceneFileName.is_relative())
-                sceneFileName = app::GetDirectoryWithExecutable().parent_path() / sceneFileName;
+            std::filesystem::path argPath = __argv[i];
+            if (argPath.is_relative())
+                argPath = app::GetDirectoryWithExecutable().parent_path() / argPath;
+
+            if (argPath.extension() == ".stage")
+                stageFileName = argPath;
+            else
+                sceneFileName = argPath;
         }
     }
 
@@ -685,10 +918,12 @@ int main(int __argc, const char** __argv)
 
     {
         BindlessRayTracing example(deviceManager);
-        if (example.Init(useRayQuery, sceneFileName))
+        if (example.Init(useRayQuery, sceneFileName, stageFileName))
         {
             deviceManager->AddRenderPassToBack(&example);
+            example.AddUIRenderPass();
             deviceManager->RunMessageLoop();
+            example.RemoveUIRenderPass();
             deviceManager->RemoveRenderPass(&example);
         }
     }

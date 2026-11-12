@@ -38,6 +38,6 @@ donut_compile_shaders(
 )
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_render donut_app donut_engine)
+target_link_libraries(${project} donut_render donut_app donut_engine donut_ecs)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})

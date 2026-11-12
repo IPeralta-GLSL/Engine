@@ -121,6 +121,7 @@ if (DONUT_WITH_DLSS)
 endif()
 
 include(donut-core.cmake)
+include(donut-ecs.cmake)
 if (DONUT_WITH_NVRHI)
     include(donut-engine.cmake)
     include(donut-render.cmake)
