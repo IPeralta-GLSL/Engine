@@ -41,6 +41,7 @@
 #include <donut/core/math/math.h>
 #include <nvrhi/utils.h>
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <string>
 
@@ -83,56 +84,66 @@ protected:
     void buildUI() override
     {
         const ImGuiIO& io = ImGui::GetIO();
-        const float width = 380.f;
-        const float margin = 16.f;
+        const ImVec2 display = io.DisplaySize;
+        const float topBarHeight = 34.f;
+        const float leftWidth = 280.f;
+        const float rightWidth = 360.f;
 
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - width - margin, margin), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(width, io.DisplaySize.y * 0.42f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Hierarchy"))
-        {
-            ImGui::Text("Stage: %s", m_Stage.GetName().c_str());
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%zu prims)", m_Stage.GetPrimCount());
-            ImGui::Separator();
+        const ImVec2 viewportMin(leftWidth, topBarHeight);
+        const ImGuiWindowFlags panelFlags =
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-            for (ecs::Prim prim : m_Stage.GetPrims())
-            {
-                if (!prim.IsValid())
-                    continue;
-
-                std::string label;
-                if (prim.HasAttribute<ecs::NameAttribute>())
-                    label = prim.GetAttribute<ecs::NameAttribute>().value;
-                else
-                    label = "Prim " + std::to_string(uint32_t(prim.GetEntity()));
-
-                const bool selected = (m_Selected == prim.GetEntity());
-                ImGui::PushID(int(uint32_t(prim.GetEntity())));
-                if (ImGui::Selectable(label.c_str(), selected))
-                    m_Selected = prim.GetEntity();
-                ImGui::PopID();
-            }
-        }
+        ImGui::SetNextWindowPos(ImVec2(0.f, 0.f));
+        ImGui::SetNextWindowSize(ImVec2(display.x, topBarHeight));
+        ImGui::Begin("##EditorTopBar", nullptr, panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
+        ImGui::TextUnformatted("Engine Editor");
+        ImGui::SameLine();
+        ImGui::TextDisabled("|  %s  |  %zu prims  |  %.1f FPS", m_Stage.GetName().c_str(), m_Stage.GetPrimCount(), io.Framerate);
         ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - width - margin, io.DisplaySize.y * 0.42f + margin * 2.f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(width, io.DisplaySize.y * 0.58f - margin * 3.f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Details"))
+        ImGui::SetNextWindowPos(ImVec2(0.f, topBarHeight));
+        ImGui::SetNextWindowSize(ImVec2(leftWidth, display.y - topBarHeight));
+        ImGui::Begin("Hierarchy", nullptr, panelFlags);
+        for (ecs::Prim prim : m_Stage.GetPrims())
         {
-            ecs::Prim selectedPrim;
-            if (m_Selected != entt::null)
-                selectedPrim = ecs::Prim(m_Stage.GetRegistry(), m_Selected);
+            if (!prim.IsValid())
+                continue;
 
-            if (!selectedPrim.IsValid())
-            {
-                ImGui::TextDisabled("Select a Prim in the Hierarchy.");
-            }
+            std::string label;
+            if (prim.HasAttribute<ecs::NameAttribute>())
+                label = prim.GetAttribute<ecs::NameAttribute>().value;
             else
-            {
-                DrawDetails(selectedPrim);
-            }
+                label = "Prim " + std::to_string(uint32_t(prim.GetEntity()));
+
+            const bool selected = (m_Selected == prim.GetEntity());
+            ImGui::PushID(int(uint32_t(prim.GetEntity())));
+            if (ImGui::Selectable(label.c_str(), selected))
+                m_Selected = prim.GetEntity();
+            ImGui::PopID();
         }
         ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(display.x - rightWidth, topBarHeight));
+        ImGui::SetNextWindowSize(ImVec2(rightWidth, display.y - topBarHeight));
+        ImGui::Begin("Details", nullptr, panelFlags);
+        ecs::Prim selectedPrim;
+        if (m_Selected != entt::null)
+            selectedPrim = ecs::Prim(m_Stage.GetRegistry(), m_Selected);
+
+        if (!selectedPrim.IsValid())
+        {
+            ImGui::TextDisabled("Select a Prim in the Hierarchy.");
+        }
+        else
+        {
+            DrawDetails(selectedPrim);
+        }
+        ImGui::End();
+
+        ImGui::GetForegroundDrawList()->AddText(
+            ImVec2(viewportMin.x + 10.f, viewportMin.y + 8.f),
+            IM_COL32(210, 210, 210, 200), "Viewport");
     }
 
 private:
