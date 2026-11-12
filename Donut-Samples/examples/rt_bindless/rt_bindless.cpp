@@ -26,6 +26,7 @@
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/engine/TextureCache.h>
 #include <donut/engine/Scene.h>
+#include <donut/engine/SceneGraph.h>
 #include <donut/engine/BindingCache.h>
 #include <donut/engine/View.h>
 #include <donut/engine/FramebufferFactory.h>
@@ -41,6 +42,7 @@
 #include <donut/core/math/math.h>
 #include <nvrhi/utils.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -78,6 +80,50 @@ public:
         style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.18f, 0.52f, 0.24f, 1.00f);
         style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.66f, 0.31f, 1.00f);
         style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.14f, 0.42f, 0.19f, 1.00f);
+
+        for (ecs::Prim prim : m_Stage.GetPrims())
+        {
+            if (prim.HasAttribute<ecs::TransformAttribute>())
+            {
+                m_Selected = prim.GetEntity();
+                break;
+            }
+        }
+    }
+
+    void SetCamera(const dm::float4x4& viewProj, const dm::float3& cameraPos)
+    {
+        m_ViewProj = viewProj;
+        m_CameraPos = cameraPos;
+        m_HasCamera = true;
+    }
+
+    bool MouseButtonUpdate(int button, int action, int mods) override
+    {
+        bool consumed = app::ImGui_Renderer::MouseButtonUpdate(button, action, mods);
+        if (button == 0)
+        {
+            if (action == 1)
+            {
+                if (m_GizmoHover != 0)
+                    consumed = true;
+            }
+            else if (action == 0)
+            {
+                if (m_GizmoActive != 0)
+                {
+                    m_GizmoActive = 0;
+                    consumed = true;
+                }
+            }
+        }
+        return consumed || (m_GizmoActive != 0);
+    }
+
+    bool MousePosUpdate(double xpos, double ypos) override
+    {
+        bool consumed = app::ImGui_Renderer::MousePosUpdate(xpos, ypos);
+        return consumed || (m_GizmoActive != 0);
     }
 
 protected:
@@ -86,10 +132,11 @@ protected:
         const ImGuiIO& io = ImGui::GetIO();
         const ImVec2 display = io.DisplaySize;
         const float topBarHeight = 34.f;
-        const float leftWidth = 280.f;
-        const float rightWidth = 360.f;
+        const float panelWidth = 320.f;
+        const float panelHeight = display.y - topBarHeight;
+        const float hierarchyHeight = panelHeight * 0.42f;
+        const float panelX = display.x - panelWidth;
 
-        const ImVec2 viewportMin(leftWidth, topBarHeight);
         const ImGuiWindowFlags panelFlags =
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -102,8 +149,8 @@ protected:
         ImGui::TextDisabled("|  %s  |  %zu prims  |  %.1f FPS", m_Stage.GetName().c_str(), m_Stage.GetPrimCount(), io.Framerate);
         ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(0.f, topBarHeight));
-        ImGui::SetNextWindowSize(ImVec2(leftWidth, display.y - topBarHeight));
+        ImGui::SetNextWindowPos(ImVec2(panelX, topBarHeight));
+        ImGui::SetNextWindowSize(ImVec2(panelWidth, hierarchyHeight));
         ImGui::Begin("Hierarchy", nullptr, panelFlags);
         for (ecs::Prim prim : m_Stage.GetPrims())
         {
@@ -124,8 +171,8 @@ protected:
         }
         ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(display.x - rightWidth, topBarHeight));
-        ImGui::SetNextWindowSize(ImVec2(rightWidth, display.y - topBarHeight));
+        ImGui::SetNextWindowPos(ImVec2(panelX, topBarHeight + hierarchyHeight));
+        ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight - hierarchyHeight));
         ImGui::Begin("Details", nullptr, panelFlags);
         ecs::Prim selectedPrim;
         if (m_Selected != entt::null)
@@ -142,8 +189,10 @@ protected:
         ImGui::End();
 
         ImGui::GetForegroundDrawList()->AddText(
-            ImVec2(viewportMin.x + 10.f, viewportMin.y + 8.f),
+            ImVec2(10.f, topBarHeight + 8.f),
             IM_COL32(210, 210, 210, 200), "Viewport");
+
+        DrawGizmo(display);
     }
 
 private:
@@ -249,8 +298,276 @@ private:
         DrawAttributeSection<ecs::ModelAttribute>(prim, "Model", [](ecs::ModelAttribute& a) { InputStringField("Path", a.path); });
     }
 
+    static float DistancePointSegment(const ImVec2& p, const ImVec2& a, const ImVec2& b)
+    {
+        const float abx = b.x - a.x;
+        const float aby = b.y - a.y;
+        const float lengthSquared = abx * abx + aby * aby;
+        float t = 0.f;
+        if (lengthSquared > 1e-6f)
+            t = std::clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSquared, 0.f, 1.f);
+        const float cx = a.x + abx * t;
+        const float cy = a.y + aby * t;
+        const float dx = p.x - cx;
+        const float dy = p.y - cy;
+        return std::sqrt(dx * dx + dy * dy);
+    }
+
+    static ImU32 AxisColor(int axis, bool highlighted)
+    {
+        if (highlighted)
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(1.0f, 0.85f, 0.2f, 1.0f));
+        if (axis == 0)
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(0.90f, 0.25f, 0.25f, 1.0f));
+        if (axis == 1)
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(0.30f, 0.85f, 0.30f, 1.0f));
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(0.30f, 0.45f, 0.95f, 1.0f));
+    }
+
+    static dm::quaternion<float> MultiplyQuat(const dm::quaternion<float>& a, const dm::quaternion<float>& b)
+    {
+        return dm::quaternion<float>(
+            a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+            a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w);
+    }
+
+    bool ProjectPoint(const dm::float3& world, ImVec2& out, const ImVec2& display) const
+    {
+        if (!m_HasCamera)
+            return false;
+        dm::float4 clip = dm::float4(world, 1.f) * m_ViewProj;
+        if (clip.w <= 1e-4f)
+            return false;
+        dm::float3 ndc = dm::float3(clip.x, clip.y, clip.z) / clip.w;
+        out = ImVec2((ndc.x * 0.5f + 0.5f) * display.x, (1.f - (ndc.y * 0.5f + 0.5f)) * display.y);
+        return true;
+    }
+
+    void DrawGizmo(const ImVec2& display)
+    {
+        if (!m_HasCamera || m_Selected == entt::null)
+        {
+            m_GizmoHover = 0;
+            return;
+        }
+
+        ecs::Prim prim(m_Stage.GetRegistry(), m_Selected);
+        if (!prim.IsValid() || !prim.HasAttribute<ecs::TransformAttribute>())
+        {
+            m_GizmoHover = 0;
+            return;
+        }
+
+        ecs::TransformAttribute& transform = prim.GetAttribute<ecs::TransformAttribute>();
+
+        ImVec2 origin;
+        if (!ProjectPoint(transform.translation, origin, display))
+        {
+            m_GizmoHover = 0;
+            return;
+        }
+
+        const float distanceToCamera = dm::length(transform.translation - m_CameraPos);
+        const float worldSize = std::max(0.25f, distanceToCamera * 0.12f);
+
+        const dm::float3 axes[3] = { dm::float3(1.f, 0.f, 0.f), dm::float3(0.f, 1.f, 0.f), dm::float3(0.f, 0.f, 1.f) };
+
+        ImVec2 ends[3];
+        bool endValid[3] = { false, false, false };
+        for (int i = 0; i < 3; i++)
+        {
+            ImVec2 projected;
+            if (ProjectPoint(transform.translation + axes[i] * worldSize, projected, display))
+            {
+                ends[i] = projected;
+                endValid[i] = true;
+            }
+        }
+
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+        int hover = 0;
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!endValid[i])
+                continue;
+            const float sx = origin.x + (ends[i].x - origin.x) * 1.15f;
+            const float sy = origin.y + (ends[i].y - origin.y) * 1.15f;
+            const float dx = mouse.x - sx;
+            const float dy = mouse.y - sy;
+            if (dx * dx + dy * dy < 100.f)
+                hover = 7 + i;
+        }
+
+        if (hover == 0)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (endValid[i] && DistancePointSegment(mouse, origin, ends[i]) < 7.f)
+                    hover = 1 + i;
+            }
+        }
+
+        if (hover == 0)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                const dm::float3 u = axes[(i + 1) % 3];
+                const dm::float3 v = axes[(i + 2) % 3];
+                ImVec2 previous;
+                bool hasPrevious = false;
+                float best = 1e9f;
+                const int segments = 48;
+                for (int k = 0; k <= segments; k++)
+                {
+                    const float angle = (float(k) / float(segments)) * 2.f * dm::PI_f;
+                    ImVec2 projected;
+                    if (!ProjectPoint(transform.translation + (u * std::cos(angle) + v * std::sin(angle)) * (worldSize * 0.78f), projected, display))
+                    {
+                        hasPrevious = false;
+                        continue;
+                    }
+                    if (hasPrevious)
+                        best = std::min(best, DistancePointSegment(mouse, previous, projected));
+                    previous = projected;
+                    hasPrevious = true;
+                }
+                if (best < 7.f)
+                {
+                    hover = 4 + i;
+                    break;
+                }
+            }
+        }
+
+        m_GizmoHover = hover;
+
+        for (int i = 0; i < 3; i++)
+        {
+            const dm::float3 u = axes[(i + 1) % 3];
+            const dm::float3 v = axes[(i + 2) % 3];
+            const bool highlighted = (m_GizmoHover == 4 + i || m_GizmoActive == 4 + i);
+            ImVec2 previous;
+            bool hasPrevious = false;
+            const int segments = 48;
+            for (int k = 0; k <= segments; k++)
+            {
+                const float angle = (float(k) / float(segments)) * 2.f * dm::PI_f;
+                ImVec2 projected;
+                if (!ProjectPoint(transform.translation + (u * std::cos(angle) + v * std::sin(angle)) * (worldSize * 0.78f), projected, display))
+                {
+                    hasPrevious = false;
+                    continue;
+                }
+                if (hasPrevious)
+                    drawList->AddLine(previous, projected, AxisColor(i, highlighted), highlighted ? 2.5f : 1.5f);
+                previous = projected;
+                hasPrevious = true;
+            }
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!endValid[i])
+                continue;
+
+            const bool translateHighlighted = (m_GizmoHover == 1 + i || m_GizmoActive == 1 + i);
+            const bool scaleHighlighted = (m_GizmoHover == 7 + i || m_GizmoActive == 7 + i);
+
+            drawList->AddLine(origin, ends[i], AxisColor(i, translateHighlighted), translateHighlighted ? 3.f : 2.f);
+
+            const float dirX = ends[i].x - origin.x;
+            const float dirY = ends[i].y - origin.y;
+            const float dirLength = std::sqrt(dirX * dirX + dirY * dirY);
+            if (dirLength > 1.f)
+            {
+                const float dx = dirX / dirLength;
+                const float dy = dirY / dirLength;
+                const ImVec2 base(ends[i].x - dx * 12.f, ends[i].y - dy * 12.f);
+                drawList->AddTriangleFilled(
+                    ends[i],
+                    ImVec2(base.x - dy * 6.f, base.y + dx * 6.f),
+                    ImVec2(base.x + dy * 6.f, base.y - dx * 6.f),
+                    AxisColor(i, translateHighlighted));
+            }
+
+            const float sx = origin.x + dirX * 1.15f;
+            const float sy = origin.y + dirY * 1.15f;
+            drawList->AddRectFilled(ImVec2(sx - 5.f, sy - 5.f), ImVec2(sx + 5.f, sy + 5.f), AxisColor(i, scaleHighlighted));
+        }
+
+        if (hover != 0 && m_GizmoActive == 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            m_GizmoActive = hover;
+            m_DragStartMouse = mouse;
+            m_DragStartTransform = transform;
+            m_DragEntity = m_Selected;
+        }
+
+        if (m_GizmoActive == 0 || !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            return;
+
+        const int mode = (m_GizmoActive - 1) / 3;
+        const int axisIndex = (m_GizmoActive - 1) % 3;
+        const float deltaX = mouse.x - m_DragStartMouse.x;
+        const float deltaY = mouse.y - m_DragStartMouse.y;
+
+        if (mode == 1)
+        {
+            const float startAngle = std::atan2(m_DragStartMouse.y - origin.y, m_DragStartMouse.x - origin.x);
+            const float currentAngle = std::atan2(mouse.y - origin.y, mouse.x - origin.x);
+            float angleDelta = currentAngle - startAngle;
+            while (angleDelta > dm::PI_f)
+                angleDelta -= 2.f * dm::PI_f;
+            while (angleDelta < -dm::PI_f)
+                angleDelta += 2.f * dm::PI_f;
+
+            const dm::quaternion<float> startRotation = dm::quaternion<float>::fromXYZW(m_DragStartTransform.rotation);
+            const dm::quaternion<float> deltaRotation = dm::rotationQuat(axes[axisIndex], angleDelta);
+            const dm::quaternion<float> result = dm::normalize(MultiplyQuat(deltaRotation, startRotation));
+            transform.rotation = dm::float4(result.x, result.y, result.z, result.w);
+            return;
+        }
+
+        if (!endValid[axisIndex])
+            return;
+
+        const float dirX = ends[axisIndex].x - origin.x;
+        const float dirY = ends[axisIndex].y - origin.y;
+        const float dirLength = std::sqrt(dirX * dirX + dirY * dirY);
+        if (dirLength <= 1.f)
+            return;
+
+        const float projectedDelta = (deltaX * dirX + deltaY * dirY) / dirLength;
+
+        if (mode == 0)
+        {
+            const float worldPerPixel = worldSize / dirLength;
+            transform.translation[axisIndex] = m_DragStartTransform.translation[axisIndex] + projectedDelta * worldPerPixel;
+        }
+        else
+        {
+            const float factor = std::max(0.05f, 1.f + projectedDelta / dirLength);
+            transform.scaling[axisIndex] = std::max(0.01f, m_DragStartTransform.scaling[axisIndex] * factor);
+        }
+    }
+
     ecs::Stage& m_Stage;
     entt::entity m_Selected = entt::null;
+
+    dm::float4x4 m_ViewProj;
+    dm::float3 m_CameraPos = dm::float3(0.f);
+    bool m_HasCamera = false;
+
+    int m_GizmoHover = 0;
+    int m_GizmoActive = 0;
+    ImVec2 m_DragStartMouse = ImVec2(0.f, 0.f);
+    ecs::TransformAttribute m_DragStartTransform;
+    entt::entity m_DragEntity = entt::null;
 };
 
 class BindlessRayTracing : public app::ApplicationBase
@@ -782,6 +1099,9 @@ public:
         m_View.SetMatrices(m_Camera.GetWorldToViewMatrix(), perspProjD3DStyleReverse(dm::PI_f * 0.25f, windowViewport.width() / windowViewport.height(), 0.1f));
         m_View.UpdateCache();
 
+        if (m_StageUI)
+            m_StageUI->SetCamera(m_View.GetViewProjectionMatrix(), m_Camera.GetPosition());
+
         if (!m_BloomPass)
         {
             m_BloomPass = std::make_unique<render::BloomPass>(GetDevice(), m_ShaderFactory, m_CommonPasses, m_HdrFramebuffer, m_View);
@@ -790,6 +1110,22 @@ public:
         }
 
         m_CommandList->open();
+
+        if (m_EcsStage)
+        {
+            for (ecs::Prim prim : m_EcsStage->GetPrims())
+            {
+                if (!prim.HasAttribute<ecs::ModelAttribute>() || !prim.HasAttribute<ecs::TransformAttribute>())
+                    continue;
+
+                ecs::TransformAttribute& t = prim.GetAttribute<ecs::TransformAttribute>();
+                dm::dquat rotation(t.rotation.w, t.rotation.x, t.rotation.y, t.rotation.z);
+                dm::double3 translation(t.translation.x, t.translation.y, t.translation.z);
+                dm::double3 scaling(t.scaling.x, t.scaling.y, t.scaling.z);
+                m_Scene->GetSceneGraph()->GetRootNode()->SetTransform(&translation, &rotation, &scaling);
+                break;
+            }
+        }
 
         m_Scene->Refresh(m_CommandList, GetFrameIndex());
         BuildTLAS(m_CommandList, GetFrameIndex());
