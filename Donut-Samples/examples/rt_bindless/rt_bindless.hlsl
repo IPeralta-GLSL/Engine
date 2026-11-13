@@ -55,6 +55,8 @@ ConstantBuffer<FrameConstants> g_Frame : register(b2);
 
 RWTexture2D<float4> u_Output : register(u0);
 RWTexture2D<float4> u_HistoryOut : register(u1);
+RWTexture2D<float> u_DepthOut : register(u2);
+RWTexture2D<float4> u_NormalOut : register(u3);
 
 RaytracingAccelerationStructure SceneBVH : register(t0);
 StructuredBuffer<InstanceData> t_InstanceData : register(t1);
@@ -480,8 +482,12 @@ float computeAO(float3 worldPos, float3 n, uint2 pixelPosition)
 
     float3 worldPos = mul(gs.instance.transform, float4(gs.objectSpacePosition, 1.0)).xyz;
 
+    float viewZ = mul(float4(worldPos, 1.0), g_Const.view.matWorldToView).z;
+    u_DepthOut[pixelPosition] = max(viewZ, 0.0);
+    u_NormalOut[pixelPosition] = float4(ms.shadingNormal, 1.0);
+
     float rawVisibility = computeSunVisibility(worldPos, ms.shadingNormal, pixelPosition);
-    float rawAO = computeAO(worldPos, ms.shadingNormal, pixelPosition);
+    float rawAO = 1.0;
 
     float2 accum = float2(rawAO, rawVisibility);
     if (g_Frame.historyValid != 0)
@@ -559,6 +565,8 @@ void RayGen()
     if (payload.instanceID == ~0u)
     {
         u_Output[pixelPosition] = float4(SkyColor(ray.Direction), 1.0);
+        u_DepthOut[pixelPosition] = 0.0;
+        u_NormalOut[pixelPosition] = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
 

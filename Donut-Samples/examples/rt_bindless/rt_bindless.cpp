@@ -33,6 +33,7 @@
 #include <donut/render/BloomPass.h>
 #include <donut/render/ToneMappingPasses.h>
 #include <donut/render/SkyPass.h>
+#include <donut/render/SsaoPass.h>
 #include <donut/app/DeviceManager.h>
 #include <donut/app/imgui_renderer.h>
 #include <donut/ecs/Attribute.h>
@@ -62,6 +63,14 @@ struct FrameConstants
     uint32_t historyValid = 0;
     float blend = 0.1f;
     float pad = 0.f;
+};
+
+struct CompositeConstants
+{
+    float strength = 0.7f;
+    float pad0 = 0.f;
+    float pad1 = 0.f;
+    float pad2 = 0.f;
 };
 
 class StagePanelUI : public app::ImGui_Renderer
@@ -602,6 +611,16 @@ private:
     std::unique_ptr<engine::Scene> m_Scene;
     nvrhi::TextureHandle m_ColorBuffer;
     nvrhi::TextureHandle m_LdrColor;
+    nvrhi::TextureHandle m_GBufferDepth;
+    nvrhi::TextureHandle m_GBufferNormal;
+    nvrhi::TextureHandle m_AmbientOcclusion;
+    std::unique_ptr<render::SsaoPass> m_SsaoPass;
+    render::SsaoParameters m_SsaoParams;
+    nvrhi::BindingLayoutHandle m_CompositeLayout;
+    nvrhi::ShaderHandle m_CompositeShader;
+    nvrhi::ComputePipelineHandle m_CompositePipeline;
+    nvrhi::BufferHandle m_CompositeCB;
+    nvrhi::BindingSetHandle m_CompositeBindingSet;
     std::shared_ptr<engine::FramebufferFactory> m_HdrFramebuffer;
     std::shared_ptr<engine::FramebufferFactory> m_LdrFramebuffer;
     std::unique_ptr<render::BloomPass> m_BloomPass;
@@ -657,6 +676,29 @@ public:
 		m_CommonPasses = std::make_shared<engine::CommonRenderPasses>(GetDevice(), m_ShaderFactory);
         m_BindingCache = std::make_unique<engine::BindingCache>(GetDevice());
 
+        nvrhi::BindingLayoutDesc compositeLayoutDesc;
+        compositeLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+        compositeLayoutDesc.bindings = {
+            nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(1),
+            nvrhi::BindingLayoutItem::Texture_UAV(0)
+        };
+        m_CompositeLayout = GetDevice()->createBindingLayout(compositeLayoutDesc);
+        m_CompositeShader = m_ShaderFactory->CreateShader("app/ssao_composite.hlsl", "main", nullptr, nvrhi::ShaderType::Compute);
+        if (!m_CompositeShader)
+            return false;
+
+        nvrhi::ComputePipelineDesc compositePipelineDesc;
+        compositePipelineDesc.bindingLayouts = { m_CompositeLayout };
+        compositePipelineDesc.CS = m_CompositeShader;
+        m_CompositePipeline = GetDevice()->createComputePipeline(compositePipelineDesc);
+        if (!m_CompositePipeline)
+            return false;
+
+        m_CompositeCB = GetDevice()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+            sizeof(CompositeConstants), "CompositeConstants", engine::c_MaxRenderPassConstantBufferVersions));
+
         nvrhi::BindlessLayoutDesc bindlessLayoutDesc;
         bindlessLayoutDesc.visibility = nvrhi::ShaderType::All;
         bindlessLayoutDesc.firstSlot = 0;
@@ -680,7 +722,9 @@ public:
             nvrhi::BindingLayoutItem::Sampler(0),
             nvrhi::BindingLayoutItem::Texture_SRV(4),
             nvrhi::BindingLayoutItem::Texture_UAV(0),
-            nvrhi::BindingLayoutItem::Texture_UAV(1)
+            nvrhi::BindingLayoutItem::Texture_UAV(1),
+            nvrhi::BindingLayoutItem::Texture_UAV(2),
+            nvrhi::BindingLayoutItem::Texture_UAV(3)
         };
         m_BindingLayout = GetDevice()->createBindingLayout(globalBindingLayoutDesc);
 
@@ -1018,6 +1062,11 @@ public:
     { 
         m_ColorBuffer = nullptr;
         m_LdrColor = nullptr;
+        m_GBufferDepth = nullptr;
+        m_GBufferNormal = nullptr;
+        m_AmbientOcclusion = nullptr;
+        m_SsaoPass.reset();
+        m_CompositeBindingSet = nullptr;
         m_AOHistory[0] = nullptr;
         m_AOHistory[1] = nullptr;
         m_BindingSet[0] = nullptr;
@@ -1060,6 +1109,23 @@ public:
             m_LdrFramebuffer = std::make_shared<engine::FramebufferFactory>(GetDevice());
             m_LdrFramebuffer->RenderTargets = { m_LdrColor };
 
+            nvrhi::TextureDesc gbufferDesc = desc;
+            gbufferDesc.isRenderTarget = false;
+            gbufferDesc.isUAV = true;
+            gbufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+
+            gbufferDesc.format = nvrhi::Format::R32_FLOAT;
+            gbufferDesc.debugName = "GBufferDepth";
+            m_GBufferDepth = GetDevice()->createTexture(gbufferDesc);
+
+            gbufferDesc.format = nvrhi::Format::RGBA16_FLOAT;
+            gbufferDesc.debugName = "GBufferNormal";
+            m_GBufferNormal = GetDevice()->createTexture(gbufferDesc);
+
+            gbufferDesc.format = nvrhi::Format::R8_UNORM;
+            gbufferDesc.debugName = "AmbientOcclusion";
+            m_AmbientOcclusion = GetDevice()->createTexture(gbufferDesc);
+
             nvrhi::TextureDesc historyDesc = desc;
             historyDesc.format = nvrhi::Format::RG16_FLOAT;
             historyDesc.isRenderTarget = false;
@@ -1088,10 +1154,34 @@ public:
                     nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
                     nvrhi::BindingSetItem::Texture_SRV(4, m_AOHistory[1 - i]),
                     nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer),
-                    nvrhi::BindingSetItem::Texture_UAV(1, m_AOHistory[i])
+                    nvrhi::BindingSetItem::Texture_UAV(1, m_AOHistory[i]),
+                    nvrhi::BindingSetItem::Texture_UAV(2, m_GBufferDepth),
+                    nvrhi::BindingSetItem::Texture_UAV(3, m_GBufferNormal)
                 };
                 m_BindingSet[i] = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
             }
+
+            render::SsaoPass::CreateParameters ssaoCreateParams;
+            ssaoCreateParams.dimensions = dm::int2(fbinfo.width, fbinfo.height);
+            ssaoCreateParams.inputLinearDepth = true;
+            ssaoCreateParams.octEncodedNormals = false;
+            ssaoCreateParams.directionalOcclusion = false;
+            ssaoCreateParams.numBindingSets = 1;
+            m_SsaoPass = std::make_unique<render::SsaoPass>(GetDevice(), m_ShaderFactory, m_CommonPasses, ssaoCreateParams);
+            m_SsaoPass->CreateBindingSet(m_GBufferDepth, m_GBufferNormal, m_AmbientOcclusion);
+
+            m_SsaoParams.radiusWorld = 0.6f;
+            m_SsaoParams.powerExponent = 2.f;
+            m_SsaoParams.backgroundViewDepth = 100.f;
+
+            nvrhi::BindingSetDesc compositeSetDesc;
+            compositeSetDesc.bindings = {
+                nvrhi::BindingSetItem::ConstantBuffer(0, m_CompositeCB),
+                nvrhi::BindingSetItem::Texture_SRV(0, m_AmbientOcclusion),
+                nvrhi::BindingSetItem::Texture_SRV(1, m_GBufferDepth),
+                nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer)
+            };
+            m_CompositeBindingSet = GetDevice()->createBindingSet(compositeSetDesc, m_CompositeLayout);
         }
 
         nvrhi::Viewport windowViewport(float(fbinfo.width), float(fbinfo.height));
@@ -1181,7 +1271,22 @@ public:
         }
 
         m_HistoryIndex = 1 - m_HistoryIndex;
-        
+
+        if (m_SsaoPass && m_CompositePipeline)
+        {
+            CompositeConstants compositeConstants;
+            compositeConstants.strength = 0.7f;
+            m_CommandList->writeBuffer(m_CompositeCB, &compositeConstants, sizeof(compositeConstants));
+
+            m_SsaoPass->Render(m_CommandList, m_SsaoParams, m_View);
+
+            nvrhi::ComputeState compositeState;
+            compositeState.pipeline = m_CompositePipeline;
+            compositeState.bindings = { m_CompositeBindingSet };
+            m_CommandList->setComputeState(compositeState);
+            m_CommandList->dispatch(dm::div_ceil(fbinfo.width, 8), dm::div_ceil(fbinfo.height, 8), 1);
+        }
+
         if (m_BloomPass)
         {
             m_BloomPass->Render(m_CommandList, m_HdrFramebuffer, m_View, m_ColorBuffer, 8.0f, 0.15f);
