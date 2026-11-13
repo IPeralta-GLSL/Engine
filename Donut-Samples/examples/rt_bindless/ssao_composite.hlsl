@@ -3,7 +3,7 @@ Texture2D<float> t_AO : register(t0);
 Texture2D<float> t_Depth : register(t1);
 Texture2D<float4> t_Direct : register(t2);
 Texture2D<float> t_Vis : register(t3);
-Texture2D<float> t_DenVis : register(t4);
+Texture2D<float2> t_DenVis : register(t4);
 
 cbuffer CompositeConstants : register(b0)
 {
@@ -16,18 +16,23 @@ cbuffer CompositeConstants : register(b0)
 [numthreads(8, 8, 1)]
 void main(uint2 pixel : SV_DispatchThreadID)
 {
+    uint width, height;
+    u_Color.GetDimensions(width, height);
+    if (pixel.x >= width || pixel.y >= height)
+        return;
+
     float depth = t_Depth.Load(int3(pixel, 0));
     float4 color = u_Color[pixel];
 
     if (depth > 0.0)
     {
-        float vis = t_Vis.Load(int3(pixel, 0));
-        float denVis = t_DenVis.Load(int3(pixel, 0));
+        float vis = saturate(t_Vis.Load(int3(pixel, 0)));
+        float denVis = saturate(t_DenVis.Load(int3(pixel, 0)).x);
         float3 direct = t_Direct.Load(int3(pixel, 0)).xyz;
 
         color.rgb += direct * (denVis - vis);
 
-        float ao = t_AO.Load(int3(pixel, 0));
+        float ao = saturate(t_AO.Load(int3(pixel, 0)));
         color.rgb *= lerp(1.0, ao, strength);
     }
 

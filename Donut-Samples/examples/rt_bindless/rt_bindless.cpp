@@ -54,16 +54,16 @@ using namespace donut::math;
 #include <donut/shaders/sky_cb.h>
 
 #include "lighting_cb.h"
+#include "denoise_cb.h"
 
 static const char* g_WindowTitle = "Donut Example: Bindless Ray Tracing";
 
 struct FrameConstants
 {
     uint32_t frameIndex = 0;
-    uint32_t historyValid = 0;
-    float blend = 0.1f;
-    float pad = 0.f;
-    dm::float4x4 prevViewProj;
+    uint32_t pad0 = 0;
+    uint32_t pad1 = 0;
+    uint32_t pad2 = 0;
 };
 
 struct CompositeConstants
@@ -601,8 +601,10 @@ private:
     nvrhi::BufferHandle m_FrameCB;
     render::SkyParameters m_SkyParams;
 
-    nvrhi::TextureHandle m_AOHistory[2];
-    nvrhi::BindingSetHandle m_BindingSet[2];
+    nvrhi::TextureHandle m_VisHistory[2];
+    nvrhi::TextureHandle m_DepthHistory[2];
+    nvrhi::TextureHandle m_NormalHistory[2];
+    nvrhi::BindingSetHandle m_BindingSet;
     int m_HistoryIndex = 0;
     bool m_HasPrevViewProj = false;
     dm::float4x4 m_PrevViewProj;
@@ -617,13 +619,19 @@ private:
     nvrhi::TextureHandle m_AmbientOcclusion;
     nvrhi::TextureHandle m_DirectBuffer;
     nvrhi::TextureHandle m_VisBuffer;
-    nvrhi::TextureHandle m_DenVisBuffer;
+    nvrhi::TextureHandle m_DenoiseBuffer[2];
     std::unique_ptr<render::SsaoPass> m_SsaoPass;
     render::SsaoParameters m_SsaoParams;
+    nvrhi::BufferHandle m_TemporalCB;
+    nvrhi::BufferHandle m_AtrousCB[4];
+    nvrhi::BindingLayoutHandle m_TemporalLayout;
+    nvrhi::ShaderHandle m_TemporalShader;
+    nvrhi::ComputePipelineHandle m_TemporalPipeline;
+    nvrhi::BindingSetHandle m_TemporalBindingSet[2];
     nvrhi::BindingLayoutHandle m_DenoiseLayout;
     nvrhi::ShaderHandle m_DenoiseShader;
     nvrhi::ComputePipelineHandle m_DenoisePipeline;
-    nvrhi::BindingSetHandle m_DenoiseBindingSet;
+    nvrhi::BindingSetHandle m_DenoiseBindingSet[4];
     nvrhi::BindingLayoutHandle m_CompositeLayout;
     nvrhi::ShaderHandle m_CompositeShader;
     nvrhi::ComputePipelineHandle m_CompositePipeline;
@@ -710,9 +718,46 @@ public:
         m_CompositeCB = GetDevice()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
             sizeof(CompositeConstants), "CompositeConstants", engine::c_MaxRenderPassConstantBufferVersions));
 
+        m_TemporalCB = GetDevice()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+            sizeof(DenoiseConstants), "TemporalDenoiseConstants", engine::c_MaxRenderPassConstantBufferVersions));
+
+        for (int i = 0; i < 4; i++)
+        {
+            m_AtrousCB[i] = GetDevice()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+                sizeof(DenoiseConstants), "AtrousDenoiseConstants", engine::c_MaxRenderPassConstantBufferVersions));
+        }
+
+        nvrhi::BindingLayoutDesc temporalLayoutDesc;
+        temporalLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+        temporalLayoutDesc.bindings = {
+            nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(0),
+            nvrhi::BindingLayoutItem::Texture_SRV(1),
+            nvrhi::BindingLayoutItem::Texture_SRV(2),
+            nvrhi::BindingLayoutItem::Texture_SRV(3),
+            nvrhi::BindingLayoutItem::Texture_SRV(4),
+            nvrhi::BindingLayoutItem::Texture_SRV(5),
+            nvrhi::BindingLayoutItem::Texture_UAV(0),
+            nvrhi::BindingLayoutItem::Texture_UAV(1),
+            nvrhi::BindingLayoutItem::Texture_UAV(2),
+            nvrhi::BindingLayoutItem::Texture_UAV(3)
+        };
+        m_TemporalLayout = GetDevice()->createBindingLayout(temporalLayoutDesc);
+        m_TemporalShader = m_ShaderFactory->CreateShader("app/shadow_temporal.hlsl", "main", nullptr, nvrhi::ShaderType::Compute);
+        if (!m_TemporalShader)
+            return false;
+
+        nvrhi::ComputePipelineDesc temporalPipelineDesc;
+        temporalPipelineDesc.bindingLayouts = { m_TemporalLayout };
+        temporalPipelineDesc.CS = m_TemporalShader;
+        m_TemporalPipeline = GetDevice()->createComputePipeline(temporalPipelineDesc);
+        if (!m_TemporalPipeline)
+            return false;
+
         nvrhi::BindingLayoutDesc denoiseLayoutDesc;
         denoiseLayoutDesc.visibility = nvrhi::ShaderType::Compute;
         denoiseLayoutDesc.bindings = {
+            nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
             nvrhi::BindingLayoutItem::Texture_SRV(0),
             nvrhi::BindingLayoutItem::Texture_SRV(1),
             nvrhi::BindingLayoutItem::Texture_SRV(2),
@@ -751,13 +796,11 @@ public:
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3),
             nvrhi::BindingLayoutItem::Sampler(0),
-            nvrhi::BindingLayoutItem::Texture_SRV(4),
             nvrhi::BindingLayoutItem::Texture_UAV(0),
             nvrhi::BindingLayoutItem::Texture_UAV(1),
             nvrhi::BindingLayoutItem::Texture_UAV(2),
             nvrhi::BindingLayoutItem::Texture_UAV(3),
-            nvrhi::BindingLayoutItem::Texture_UAV(4),
-            nvrhi::BindingLayoutItem::Texture_UAV(5)
+            nvrhi::BindingLayoutItem::Texture_UAV(4)
         };
         m_BindingLayout = GetDevice()->createBindingLayout(globalBindingLayoutDesc);
 
@@ -1100,14 +1143,22 @@ public:
         m_AmbientOcclusion = nullptr;
         m_DirectBuffer = nullptr;
         m_VisBuffer = nullptr;
-        m_DenVisBuffer = nullptr;
+        m_DenoiseBuffer[0] = nullptr;
+        m_DenoiseBuffer[1] = nullptr;
         m_SsaoPass.reset();
-        m_DenoiseBindingSet = nullptr;
+        m_TemporalBindingSet[0] = nullptr;
+        m_TemporalBindingSet[1] = nullptr;
+        for (int i = 0; i < 4; i++)
+            m_DenoiseBindingSet[i] = nullptr;
         m_CompositeBindingSet = nullptr;
-        m_AOHistory[0] = nullptr;
-        m_AOHistory[1] = nullptr;
-        m_BindingSet[0] = nullptr;
-        m_BindingSet[1] = nullptr;
+        for (int i = 0; i < 2; i++)
+        {
+            m_VisHistory[i] = nullptr;
+            m_DepthHistory[i] = nullptr;
+            m_NormalHistory[i] = nullptr;
+        }
+        m_BindingSet = nullptr;
+        m_HistoryIndex = 0;
         m_HasPrevViewProj = false;
         m_HdrFramebuffer.reset();
         m_LdrFramebuffer.reset();
@@ -1171,46 +1222,52 @@ public:
             gbufferDesc.debugName = "VisBuffer";
             m_VisBuffer = GetDevice()->createTexture(gbufferDesc);
 
-            gbufferDesc.format = nvrhi::Format::R32_FLOAT;
-            gbufferDesc.debugName = "DenVisBuffer";
-            m_DenVisBuffer = GetDevice()->createTexture(gbufferDesc);
+            gbufferDesc.format = nvrhi::Format::RGBA16_FLOAT;
+            for (int i = 0; i < 2; i++)
+            {
+                gbufferDesc.debugName = i == 0 ? "DenoiseBuffer0" : "DenoiseBuffer1";
+                m_DenoiseBuffer[i] = GetDevice()->createTexture(gbufferDesc);
+            }
 
             nvrhi::TextureDesc historyDesc = desc;
-            historyDesc.format = nvrhi::Format::RG16_FLOAT;
             historyDesc.isRenderTarget = false;
             historyDesc.isUAV = true;
             historyDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
             for (int i = 0; i < 2; i++)
             {
-                historyDesc.debugName = i == 0 ? "AOHistory0" : "AOHistory1";
-                m_AOHistory[i] = GetDevice()->createTexture(historyDesc);
+                historyDesc.format = nvrhi::Format::RG16_FLOAT;
+                historyDesc.debugName = i == 0 ? "VisHistory0" : "VisHistory1";
+                m_VisHistory[i] = GetDevice()->createTexture(historyDesc);
+
+                historyDesc.format = nvrhi::Format::R32_FLOAT;
+                historyDesc.debugName = i == 0 ? "DepthHistory0" : "DepthHistory1";
+                m_DepthHistory[i] = GetDevice()->createTexture(historyDesc);
+
+                historyDesc.format = nvrhi::Format::RGBA16_FLOAT;
+                historyDesc.debugName = i == 0 ? "NormalHistory0" : "NormalHistory1";
+                m_NormalHistory[i] = GetDevice()->createTexture(historyDesc);
             }
 
             m_HistoryIndex = 0;
             m_HasPrevViewProj = false;
 
-            for (int i = 0; i < 2; i++)
-            {
-                nvrhi::BindingSetDesc bindingSetDesc;
-                bindingSetDesc.bindings = {
-                    nvrhi::BindingSetItem::ConstantBuffer(0, m_ConstantBuffer),
-                    nvrhi::BindingSetItem::ConstantBuffer(1, m_SkyCB),
-                    nvrhi::BindingSetItem::ConstantBuffer(2, m_FrameCB),
-                    nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_TopLevelAS),
-                    nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_Scene->GetInstanceBuffer()),
-                    nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_Scene->GetGeometryBuffer()),
-                    nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_Scene->GetMaterialBuffer()),
-                    nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
-                    nvrhi::BindingSetItem::Texture_SRV(4, m_AOHistory[1 - i]),
-                    nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer),
-                    nvrhi::BindingSetItem::Texture_UAV(1, m_AOHistory[i]),
-                    nvrhi::BindingSetItem::Texture_UAV(2, m_GBufferDepth),
-                    nvrhi::BindingSetItem::Texture_UAV(3, m_GBufferNormal),
-                    nvrhi::BindingSetItem::Texture_UAV(4, m_DirectBuffer),
-                    nvrhi::BindingSetItem::Texture_UAV(5, m_VisBuffer)
-                };
-                m_BindingSet[i] = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
-            }
+            nvrhi::BindingSetDesc bindingSetDesc;
+            bindingSetDesc.bindings = {
+                nvrhi::BindingSetItem::ConstantBuffer(0, m_ConstantBuffer),
+                nvrhi::BindingSetItem::ConstantBuffer(1, m_SkyCB),
+                nvrhi::BindingSetItem::ConstantBuffer(2, m_FrameCB),
+                nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_TopLevelAS),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_Scene->GetInstanceBuffer()),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_Scene->GetGeometryBuffer()),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_Scene->GetMaterialBuffer()),
+                nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
+                nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer),
+                nvrhi::BindingSetItem::Texture_UAV(1, m_GBufferDepth),
+                nvrhi::BindingSetItem::Texture_UAV(2, m_GBufferNormal),
+                nvrhi::BindingSetItem::Texture_UAV(3, m_DirectBuffer),
+                nvrhi::BindingSetItem::Texture_UAV(4, m_VisBuffer)
+            };
+            m_BindingSet = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
 
             render::SsaoPass::CreateParameters ssaoCreateParams;
             ssaoCreateParams.dimensions = dm::int2(fbinfo.width, fbinfo.height);
@@ -1225,23 +1282,46 @@ public:
             m_SsaoParams.powerExponent = 2.f;
             m_SsaoParams.backgroundViewDepth = 100.f;
 
-            nvrhi::BindingSetDesc compositeSetDesc;
-            nvrhi::BindingSetDesc denoiseSetDesc;
-            denoiseSetDesc.bindings = {
-                nvrhi::BindingSetItem::Texture_SRV(0, m_VisBuffer),
-                nvrhi::BindingSetItem::Texture_SRV(1, m_GBufferDepth),
-                nvrhi::BindingSetItem::Texture_SRV(2, m_GBufferNormal),
-                nvrhi::BindingSetItem::Texture_UAV(0, m_DenVisBuffer)
-            };
-            m_DenoiseBindingSet = GetDevice()->createBindingSet(denoiseSetDesc, m_DenoiseLayout);
+            for (int i = 0; i < 2; i++)
+            {
+                nvrhi::BindingSetDesc temporalSetDesc;
+                temporalSetDesc.bindings = {
+                    nvrhi::BindingSetItem::ConstantBuffer(0, m_TemporalCB),
+                    nvrhi::BindingSetItem::Texture_SRV(0, m_VisBuffer),
+                    nvrhi::BindingSetItem::Texture_SRV(1, m_GBufferDepth),
+                    nvrhi::BindingSetItem::Texture_SRV(2, m_GBufferNormal),
+                    nvrhi::BindingSetItem::Texture_SRV(3, m_VisHistory[1 - i]),
+                    nvrhi::BindingSetItem::Texture_SRV(4, m_DepthHistory[1 - i]),
+                    nvrhi::BindingSetItem::Texture_SRV(5, m_NormalHistory[1 - i]),
+                    nvrhi::BindingSetItem::Texture_UAV(0, m_DenoiseBuffer[0]),
+                    nvrhi::BindingSetItem::Texture_UAV(1, m_VisHistory[i]),
+                    nvrhi::BindingSetItem::Texture_UAV(2, m_DepthHistory[i]),
+                    nvrhi::BindingSetItem::Texture_UAV(3, m_NormalHistory[i])
+                };
+                m_TemporalBindingSet[i] = GetDevice()->createBindingSet(temporalSetDesc, m_TemporalLayout);
+            }
 
+            for (int pass = 0; pass < 4; pass++)
+            {
+                nvrhi::BindingSetDesc denoiseSetDesc;
+                denoiseSetDesc.bindings = {
+                    nvrhi::BindingSetItem::ConstantBuffer(0, m_AtrousCB[pass]),
+                    nvrhi::BindingSetItem::Texture_SRV(0, m_DenoiseBuffer[pass & 1]),
+                    nvrhi::BindingSetItem::Texture_SRV(1, m_GBufferDepth),
+                    nvrhi::BindingSetItem::Texture_SRV(2, m_GBufferNormal),
+                    nvrhi::BindingSetItem::Texture_UAV(0, m_DenoiseBuffer[1 - (pass & 1)])
+                };
+                m_DenoiseBindingSet[pass] = GetDevice()->createBindingSet(denoiseSetDesc, m_DenoiseLayout);
+            }
+
+            nvrhi::BindingSetDesc compositeSetDesc;
             compositeSetDesc.bindings = {
                 nvrhi::BindingSetItem::ConstantBuffer(0, m_CompositeCB),
                 nvrhi::BindingSetItem::Texture_SRV(0, m_AmbientOcclusion),
                 nvrhi::BindingSetItem::Texture_SRV(1, m_GBufferDepth),
                 nvrhi::BindingSetItem::Texture_SRV(2, m_DirectBuffer),
                 nvrhi::BindingSetItem::Texture_SRV(3, m_VisBuffer),
-                nvrhi::BindingSetItem::Texture_SRV(4, m_DenVisBuffer),
+                nvrhi::BindingSetItem::Texture_SRV(4, m_DenoiseBuffer[0]),
                 nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer)
             };
             m_CompositeBindingSet = GetDevice()->createBindingSet(compositeSetDesc, m_CompositeLayout);
@@ -1299,22 +1379,35 @@ public:
 
         FrameConstants frameConstants = {};
         frameConstants.frameIndex = uint32_t(GetFrameIndex());
-        frameConstants.historyValid = m_HasPrevViewProj ? 1u : 0u;
-        frameConstants.blend = 0.1f;
-        frameConstants.prevViewProj = m_HasPrevViewProj ? m_PrevViewProj : viewProj;
+        m_CommandList->writeBuffer(m_FrameCB, &frameConstants, sizeof(frameConstants));
+
+        DenoiseConstants denoiseConstants = {};
+        m_View.FillPlanarViewConstants(denoiseConstants.view);
+        denoiseConstants.prevViewProj = m_HasPrevViewProj ? m_PrevViewProj : viewProj;
+        denoiseConstants.clipToView = dm::float2(
+            projection[2].w / projection[0].x,
+            projection[2].w / projection[1].y);
+        denoiseConstants.blendFactor = 0.05f;
+        denoiseConstants.clampSigma = 2.0f;
+        denoiseConstants.historySupport = 0.35f;
+        denoiseConstants.temporalActive = m_HasPrevViewProj ? 1.0f : 0.0f;
+        denoiseConstants.initialVarianceScale = 0.125f;
+        denoiseConstants.temporalDepthTolerance = 0.02f;
+        denoiseConstants.depthThresholdScale = 4.0f;
+        denoiseConstants.linearDepthTolerance = 0.005f;
+        denoiseConstants.normalPower = 32.0f;
+        denoiseConstants.luminanceSigma = 4.0f;
+        denoiseConstants.spatialSigma = 1.5f;
+        denoiseConstants.minLuminanceSigma = 0.15f;
 
         m_PrevViewProj = viewProj;
         m_HasPrevViewProj = true;
-
-        m_CommandList->writeBuffer(m_FrameCB, &frameConstants, sizeof(frameConstants));
-
-        nvrhi::BindingSetHandle currentBindingSet = m_BindingSet[m_HistoryIndex];
 
         if (m_RayPipeline)
         {
             nvrhi::rt::State state;
             state.shaderTable = m_ShaderTable;
-            state.bindings = { currentBindingSet, m_DescriptorTable->GetDescriptorTable() };
+            state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
             m_CommandList->setRayTracingState(state);
 
             nvrhi::rt::DispatchRaysArguments args;
@@ -1326,15 +1419,13 @@ public:
         {
             nvrhi::ComputeState state;
             state.pipeline = m_ComputePipeline;
-            state.bindings = { currentBindingSet, m_DescriptorTable->GetDescriptorTable() };
+            state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
             m_CommandList->setComputeState(state);
 
             m_CommandList->dispatch(
                 dm::div_ceil(fbinfo.width, 16),
                 dm::div_ceil(fbinfo.height, 16));
         }
-
-        m_HistoryIndex = 1 - m_HistoryIndex;
 
         if (m_SsaoPass && m_CompositePipeline)
         {
@@ -1344,20 +1435,46 @@ public:
 
             m_SsaoPass->Render(m_CommandList, m_SsaoParams, m_View);
 
-            if (m_DenoisePipeline && m_DenoiseBindingSet)
+            const uint32_t passWidth = dm::div_ceil(fbinfo.width, 8);
+            const uint32_t passHeight = dm::div_ceil(fbinfo.height, 8);
+
+            bool temporalRan = false;
+
+            if (m_TemporalPipeline && m_TemporalBindingSet[m_HistoryIndex])
             {
-                nvrhi::ComputeState denoiseState;
-                denoiseState.pipeline = m_DenoisePipeline;
-                denoiseState.bindings = { m_DenoiseBindingSet };
-                m_CommandList->setComputeState(denoiseState);
-                m_CommandList->dispatch(dm::div_ceil(fbinfo.width, 8), dm::div_ceil(fbinfo.height, 8), 1);
+                denoiseConstants.stepSize = 1.0f;
+                m_CommandList->writeBuffer(m_TemporalCB, &denoiseConstants, sizeof(denoiseConstants));
+
+                nvrhi::ComputeState temporalState;
+                temporalState.pipeline = m_TemporalPipeline;
+                temporalState.bindings = { m_TemporalBindingSet[m_HistoryIndex] };
+                m_CommandList->setComputeState(temporalState);
+                m_CommandList->dispatch(passWidth, passHeight, 1);
+
+                m_HistoryIndex = 1 - m_HistoryIndex;
+                temporalRan = true;
+            }
+
+            if (temporalRan && m_DenoisePipeline)
+            {
+                for (int pass = 0; pass < 4; pass++)
+                {
+                    denoiseConstants.stepSize = float(1 << pass);
+                    m_CommandList->writeBuffer(m_AtrousCB[pass], &denoiseConstants, sizeof(denoiseConstants));
+
+                    nvrhi::ComputeState denoiseState;
+                    denoiseState.pipeline = m_DenoisePipeline;
+                    denoiseState.bindings = { m_DenoiseBindingSet[pass] };
+                    m_CommandList->setComputeState(denoiseState);
+                    m_CommandList->dispatch(passWidth, passHeight, 1);
+                }
             }
 
             nvrhi::ComputeState compositeState;
             compositeState.pipeline = m_CompositePipeline;
             compositeState.bindings = { m_CompositeBindingSet };
             m_CommandList->setComputeState(compositeState);
-            m_CommandList->dispatch(dm::div_ceil(fbinfo.width, 8), dm::div_ceil(fbinfo.height, 8), 1);
+            m_CommandList->dispatch(passWidth, passHeight, 1);
         }
 
         if (m_BloomPass)

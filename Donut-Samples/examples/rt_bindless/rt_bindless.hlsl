@@ -47,25 +47,22 @@ ConstantBuffer<ProceduralSkyShaderParameters> g_Sky : register(b1);
 struct FrameConstants
 {
     uint frameIndex;
-    uint historyValid;
-    float blend;
-    float pad;
-    float4x4 prevViewProj;
+    uint pad0;
+    uint pad1;
+    uint pad2;
 };
 ConstantBuffer<FrameConstants> g_Frame : register(b2);
 
 RWTexture2D<float4> u_Output : register(u0);
-RWTexture2D<float4> u_HistoryOut : register(u1);
-RWTexture2D<float> u_DepthOut : register(u2);
-RWTexture2D<float4> u_NormalOut : register(u3);
-RWTexture2D<float4> u_DirectOut : register(u4);
-RWTexture2D<float> u_VisOut : register(u5);
+RWTexture2D<float> u_DepthOut : register(u1);
+RWTexture2D<float4> u_NormalOut : register(u2);
+RWTexture2D<float4> u_DirectOut : register(u3);
+RWTexture2D<float> u_VisOut : register(u4);
 
 RaytracingAccelerationStructure SceneBVH : register(t0);
 StructuredBuffer<InstanceData> t_InstanceData : register(t1);
 StructuredBuffer<GeometryData> t_GeometryData : register(t2);
 StructuredBuffer<MaterialConstants> t_MaterialConstants : register(t3);
-Texture2D<float4> t_History : register(t4);
 
 SamplerState s_MaterialSampler : register(s0);
 
@@ -404,7 +401,7 @@ float computeSunVisibility(float3 worldPos, float3 n, uint2 pixelPosition)
     float3 t = normalize(cross(up, L));
     float3 b = cross(L, t);
 
-    const int numSamples = 4;
+    const int numSamples = 8;
     float cone = 0.03;
     float seed = hash12(float2(pixelPosition) + float(g_Frame.frameIndex) * 13.0);
     float lit = 0;
@@ -489,30 +486,7 @@ float computeAO(float3 worldPos, float3 n, uint2 pixelPosition)
     u_DepthOut[pixelPosition] = max(viewZ, 0.0);
     u_NormalOut[pixelPosition] = float4(ms.shadingNormal, 1.0);
 
-    float rawVisibility = computeSunVisibility(worldPos, ms.shadingNormal, pixelPosition);
-    float rawAO = 1.0;
-
-    float2 accum = float2(rawAO, rawVisibility);
-    if (g_Frame.historyValid != 0)
-    {
-        float4 prevClip = mul(float4(worldPos, 1.0), g_Frame.prevViewProj);
-        if (prevClip.w > 0.0)
-        {
-            float2 ndc = prevClip.xy / prevClip.w;
-            float2 prevUV = ndc * float2(0.5, -0.5) + 0.5;
-            if (all(prevUV >= 0.0) && all(prevUV <= 1.0))
-            {
-                float2 historySize = 1.0 / g_Const.view.viewportSizeInv;
-                int2 prevPixel = clamp(int2(prevUV * historySize), int2(0, 0), int2(historySize) - 1);
-                float2 history = t_History.Load(int3(prevPixel, 0)).xy;
-                accum = lerp(history, accum, g_Frame.blend);
-            }
-        }
-    }
-    u_HistoryOut[pixelPosition] = float4(accum, 0.0, 0.0);
-
-    float visibility = accum.y;
-    float ao = accum.x;
+    float visibility = computeSunVisibility(worldPos, ms.shadingNormal, pixelPosition);
 
     float3 diffuseTerm = 0, specularTerm = 0;
     ShadeSurface(g_Const.light, ms, worldPos, viewDirection, diffuseTerm, specularTerm);
@@ -523,7 +497,7 @@ float computeAO(float3 worldPos, float3 n, uint2 pixelPosition)
     u_DirectOut[pixelPosition] = float4(directLighting, 0.0);
     u_VisOut[pixelPosition] = visibility;
 
-    float3 ambient = ms.diffuseAlbedo * SkyAmbientColor(ms.shadingNormal) * ao * 1.5;
+    float3 ambient = ms.diffuseAlbedo * SkyAmbientColor(ms.shadingNormal) * 1.5;
 
     float3 reflection = traceReflectionRay(worldPos, viewDirection, ms);
 
