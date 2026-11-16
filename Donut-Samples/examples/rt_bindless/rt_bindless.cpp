@@ -55,6 +55,7 @@ using namespace donut::math;
 
 #include "lighting_cb.h"
 #include "denoise_cb.h"
+#include "cmaa2_pass.h"
 
 static const char* g_WindowTitle = "Donut Example: Bindless Ray Tracing";
 
@@ -642,6 +643,8 @@ private:
     std::shared_ptr<engine::FramebufferFactory> m_LdrFramebuffer;
     std::unique_ptr<render::BloomPass> m_BloomPass;
     std::unique_ptr<render::ToneMappingPass> m_ToneMappingPass;
+    std::unique_ptr<Cmaa2Pass> m_Cmaa2;
+    bool m_EnableCmaa2 = false;
     app::FirstPersonCamera m_Camera;
     engine::PlanarView m_View;
     std::shared_ptr<engine::DirectionalLight> m_SunLight;
@@ -656,6 +659,8 @@ private:
 
 public:
     using ApplicationBase::ApplicationBase;
+
+    void SetCmaa2Enabled(bool enabled) { m_EnableCmaa2 = enabled; }
 
     ~BindlessRayTracing() override
     {
@@ -1178,6 +1183,7 @@ public:
         m_LdrFramebuffer.reset();
         m_BloomPass.reset();
         m_ToneMappingPass.reset();
+        m_Cmaa2.reset();
         m_BindingCache->Clear();
     }
 
@@ -1344,6 +1350,16 @@ public:
                 nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer)
             };
             m_CompositeBindingSet = GetDevice()->createBindingSet(compositeSetDesc, m_CompositeLayout);
+
+            if (m_EnableCmaa2)
+            {
+                m_Cmaa2 = std::make_unique<Cmaa2Pass>();
+                if (!m_Cmaa2->Init(GetDevice(), *m_ShaderFactory, fbinfo.width, fbinfo.height, m_LdrColor))
+                {
+                    log::warning("CMAA2 init failed; disabling anti-aliasing");
+                    m_Cmaa2.reset();
+                }
+            }
         }
 
         nvrhi::Viewport windowViewport(float(fbinfo.width), float(fbinfo.height));
@@ -1508,7 +1524,9 @@ public:
             toneMappingParams.enableColorLUT = false;
             toneMappingParams.exposureBias = -1.0f;
             m_ToneMappingPass->SimpleRender(m_CommandList, toneMappingParams, m_View, m_ColorBuffer);
-            m_CommonPasses->BlitTexture(m_CommandList, framebuffer, m_LdrColor, m_BindingCache.get());
+            if (m_Cmaa2)
+                m_Cmaa2->Execute(m_CommandList);
+            m_CommonPasses->BlitTexture(m_CommandList, framebuffer, m_Cmaa2 ? m_Cmaa2->GetOutput() : m_LdrColor.Get(), m_BindingCache.get());
         }
         else
         {
@@ -1534,6 +1552,7 @@ int main(int __argc, const char** __argv)
     deviceParams.enableRayTracingExtensions = true;
 
     bool useRayQuery = false;
+    bool enableCmaa2 = false;
     std::filesystem::path sceneFileName = app::GetDirectoryWithExecutable().parent_path() / "media/intel-sponza.scene.json";
     std::filesystem::path stageFileName = app::GetDirectoryWithExecutable().parent_path() / "stages/intel_sponza.stage";
     for (int i = 1; i < __argc; i++)
@@ -1546,6 +1565,10 @@ int main(int __argc, const char** __argv)
         {
             deviceParams.enableDebugRuntime = true;
             deviceParams.enableNvrhiValidationLayer = true;
+        }
+        else if (strcmp(__argv[i], "-cmaa2") == 0)
+        {
+            enableCmaa2 = true;
         }
         else if (__argv[i][0] != '-')
         {
@@ -1580,6 +1603,7 @@ int main(int __argc, const char** __argv)
 
     {
         BindlessRayTracing example(deviceManager);
+        example.SetCmaa2Enabled(enableCmaa2);
         if (example.Init(useRayQuery, sceneFileName, stageFileName))
         {
             deviceManager->AddRenderPassToBack(&example);
