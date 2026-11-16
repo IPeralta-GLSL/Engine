@@ -63,6 +63,8 @@ RaytracingAccelerationStructure SceneBVH : register(t0);
 StructuredBuffer<InstanceData> t_InstanceData : register(t1);
 StructuredBuffer<GeometryData> t_GeometryData : register(t2);
 StructuredBuffer<MaterialConstants> t_MaterialConstants : register(t3);
+Texture2D<float4> t_BlueNoise : register(t4);
+Texture2D<float2> t_PrevVis : register(t5);
 
 SamplerState s_MaterialSampler : register(s0);
 
@@ -394,26 +396,61 @@ float3 SkyAmbientColor(float3 direction)
     return lerp(lerp(g_Sky.horizonColor, g_Sky.groundColor, bottom), g_Sky.skyColor, top);
 }
 
-float computeSunVisibility(float3 worldPos, float3 n, uint2 pixelPosition)
+float3 OffsetRay(float3 p, float3 n)
+{
+    const float originThreshold = 1.0 / 32.0;
+    const float floatScale = 1.0 / 65536.0;
+    const float intScale = 256.0;
+
+    int3 of_i = int3(intScale * n.x, intScale * n.y, intScale * n.z);
+
+    float3 p_i = float3(
+        asfloat(asint(p.x) + (p.x < 0.0 ? -of_i.x : of_i.x)),
+        asfloat(asint(p.y) + (p.y < 0.0 ? -of_i.y : of_i.y)),
+        asfloat(asint(p.z) + (p.z < 0.0 ? -of_i.z : of_i.z)));
+
+    return float3(
+        abs(p.x) < originThreshold ? p.x + floatScale * n.x : p_i.x,
+        abs(p.y) < originThreshold ? p.y + floatScale * n.y : p_i.y,
+        abs(p.z) < originThreshold ? p.z + floatScale * n.z : p_i.z);
+}
+
+float2 R2Sequence(uint i)
+{
+    const float a1 = 0.7548776662466927;
+    const float a2 = 0.5698402909980532;
+    return frac(float2(a1, a2) * float(i) + 0.5);
+}
+
+float computeSunVisibility(float3 worldPos, float3 geometricNormal, uint2 pixelPosition)
 {
     float3 L = normalize(-g_Const.light.direction);
     float3 up = abs(L.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
     float3 t = normalize(cross(up, L));
     float3 b = cross(L, t);
 
-    const int numSamples = 8;
+    float prevVariance = g_Frame.pad0 != 0 ? t_PrevVis.Load(int3(pixelPosition, 0)).y : 0.0;
+    int numSamples = 2 + int(saturate(prevVariance * 300.0) * 14.0);
     float cone = 0.03;
-    float seed = hash12(float2(pixelPosition) + float(g_Frame.frameIndex) * 13.0);
+
+    uint2 noiseCoord = pixelPosition & 255;
+    float animation = float(g_Frame.frameIndex % 32) * 0.61803399;
+    float2 pixelOffset = frac(float2(
+        t_BlueNoise.Load(int3(noiseCoord, 0)).x,
+        t_BlueNoise.Load(int3((pixelPosition + uint2(13, 41)) & 255, 0)).x) + animation);
+
+    float3 rayOrigin = OffsetRay(worldPos, geometricNormal);
+
     float lit = 0;
     for (int i = 0; i < numSamples; i++)
     {
-        float fi = float(i);
-        float angle = fi * 2.39996323 + seed * 6.2831853;
-        float radius = sqrt((fi + 0.5) / float(numSamples)) * cone;
+        float2 u = frac(R2Sequence(uint(i)) + pixelOffset);
+        float radius = sqrt(u.x) * cone;
+        float angle = u.y * 6.2831853;
         float3 dir = normalize(L + (t * cos(angle) + b * sin(angle)) * radius);
 
         RayDesc ray;
-        ray.Origin = worldPos + n * 0.002;
+        ray.Origin = rayOrigin;
         ray.Direction = dir;
         ray.TMin = 0;
         ray.TMax = 1000;
@@ -486,7 +523,7 @@ float computeAO(float3 worldPos, float3 n, uint2 pixelPosition)
     u_DepthOut[pixelPosition] = max(viewZ, 0.0);
     u_NormalOut[pixelPosition] = float4(ms.shadingNormal, 1.0);
 
-    float visibility = computeSunVisibility(worldPos, ms.shadingNormal, pixelPosition);
+    float visibility = computeSunVisibility(worldPos, ms.geometryNormal, pixelPosition);
 
     float3 diffuseTerm = 0, specularTerm = 0;
     ShadeSurface(g_Const.light, ms, worldPos, viewDirection, diffuseTerm, specularTerm);

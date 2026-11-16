@@ -604,7 +604,7 @@ private:
     nvrhi::TextureHandle m_VisHistory[2];
     nvrhi::TextureHandle m_DepthHistory[2];
     nvrhi::TextureHandle m_NormalHistory[2];
-    nvrhi::BindingSetHandle m_BindingSet;
+    nvrhi::BindingSetHandle m_BindingSet[2];
     int m_HistoryIndex = 0;
     bool m_HasPrevViewProj = false;
     dm::float4x4 m_PrevViewProj;
@@ -619,6 +619,7 @@ private:
     nvrhi::TextureHandle m_AmbientOcclusion;
     nvrhi::TextureHandle m_DirectBuffer;
     nvrhi::TextureHandle m_VisBuffer;
+    nvrhi::TextureHandle m_BlueNoiseTexture;
     nvrhi::TextureHandle m_DenoiseBuffer[2];
     std::unique_ptr<render::SsaoPass> m_SsaoPass;
     render::SsaoParameters m_SsaoParams;
@@ -795,6 +796,8 @@ public:
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3),
+            nvrhi::BindingLayoutItem::Texture_SRV(4),
+            nvrhi::BindingLayoutItem::Texture_SRV(5),
             nvrhi::BindingLayoutItem::Sampler(0),
             nvrhi::BindingLayoutItem::Texture_UAV(0),
             nvrhi::BindingLayoutItem::Texture_UAV(1),
@@ -852,6 +855,16 @@ public:
         m_CommandList->open();
 
         CreateAccelStructs(m_CommandList);
+
+        std::filesystem::path blueNoisePath = app::GetDirectoryWithExecutable().parent_path() / "media/bluenoise/LDR_RGBA_0.png";
+        std::shared_ptr<engine::LoadedTexture> blueNoise = m_TextureCache->LoadTextureFromFile(
+            blueNoisePath, false, m_CommonPasses.get(), m_CommandList);
+        if (!blueNoise || !blueNoise->texture)
+        {
+            log::fatal("Failed to load blue noise texture '%s'", blueNoisePath.generic_string().c_str());
+            return false;
+        }
+        m_BlueNoiseTexture = blueNoise->texture;
 
         m_CommandList->close();
         GetDevice()->executeCommandList(m_CommandList);
@@ -1157,7 +1170,8 @@ public:
             m_DepthHistory[i] = nullptr;
             m_NormalHistory[i] = nullptr;
         }
-        m_BindingSet = nullptr;
+        m_BindingSet[0] = nullptr;
+        m_BindingSet[1] = nullptr;
         m_HistoryIndex = 0;
         m_HasPrevViewProj = false;
         m_HdrFramebuffer.reset();
@@ -1251,23 +1265,28 @@ public:
             m_HistoryIndex = 0;
             m_HasPrevViewProj = false;
 
-            nvrhi::BindingSetDesc bindingSetDesc;
-            bindingSetDesc.bindings = {
-                nvrhi::BindingSetItem::ConstantBuffer(0, m_ConstantBuffer),
-                nvrhi::BindingSetItem::ConstantBuffer(1, m_SkyCB),
-                nvrhi::BindingSetItem::ConstantBuffer(2, m_FrameCB),
-                nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_TopLevelAS),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_Scene->GetInstanceBuffer()),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_Scene->GetGeometryBuffer()),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_Scene->GetMaterialBuffer()),
-                nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
-                nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer),
-                nvrhi::BindingSetItem::Texture_UAV(1, m_GBufferDepth),
-                nvrhi::BindingSetItem::Texture_UAV(2, m_GBufferNormal),
-                nvrhi::BindingSetItem::Texture_UAV(3, m_DirectBuffer),
-                nvrhi::BindingSetItem::Texture_UAV(4, m_VisBuffer)
-            };
-            m_BindingSet = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
+            for (int i = 0; i < 2; i++)
+            {
+                nvrhi::BindingSetDesc bindingSetDesc;
+                bindingSetDesc.bindings = {
+                    nvrhi::BindingSetItem::ConstantBuffer(0, m_ConstantBuffer),
+                    nvrhi::BindingSetItem::ConstantBuffer(1, m_SkyCB),
+                    nvrhi::BindingSetItem::ConstantBuffer(2, m_FrameCB),
+                    nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_TopLevelAS),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_Scene->GetInstanceBuffer()),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_Scene->GetGeometryBuffer()),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_Scene->GetMaterialBuffer()),
+                    nvrhi::BindingSetItem::Texture_SRV(4, m_BlueNoiseTexture),
+                    nvrhi::BindingSetItem::Texture_SRV(5, m_VisHistory[1 - i]),
+                    nvrhi::BindingSetItem::Sampler(0, m_CommonPasses->m_AnisotropicWrapSampler),
+                    nvrhi::BindingSetItem::Texture_UAV(0, m_ColorBuffer),
+                    nvrhi::BindingSetItem::Texture_UAV(1, m_GBufferDepth),
+                    nvrhi::BindingSetItem::Texture_UAV(2, m_GBufferNormal),
+                    nvrhi::BindingSetItem::Texture_UAV(3, m_DirectBuffer),
+                    nvrhi::BindingSetItem::Texture_UAV(4, m_VisBuffer)
+                };
+                m_BindingSet[i] = GetDevice()->createBindingSet(bindingSetDesc, m_BindingLayout);
+            }
 
             render::SsaoPass::CreateParameters ssaoCreateParams;
             ssaoCreateParams.dimensions = dm::int2(fbinfo.width, fbinfo.height);
@@ -1379,6 +1398,7 @@ public:
 
         FrameConstants frameConstants = {};
         frameConstants.frameIndex = uint32_t(GetFrameIndex());
+        frameConstants.pad0 = m_HasPrevViewProj ? 1u : 0u;
         m_CommandList->writeBuffer(m_FrameCB, &frameConstants, sizeof(frameConstants));
 
         DenoiseConstants denoiseConstants = {};
@@ -1407,7 +1427,7 @@ public:
         {
             nvrhi::rt::State state;
             state.shaderTable = m_ShaderTable;
-            state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
+            state.bindings = { m_BindingSet[m_HistoryIndex], m_DescriptorTable->GetDescriptorTable() };
             m_CommandList->setRayTracingState(state);
 
             nvrhi::rt::DispatchRaysArguments args;
@@ -1419,7 +1439,7 @@ public:
         {
             nvrhi::ComputeState state;
             state.pipeline = m_ComputePipeline;
-            state.bindings = { m_BindingSet, m_DescriptorTable->GetDescriptorTable() };
+            state.bindings = { m_BindingSet[m_HistoryIndex], m_DescriptorTable->GetDescriptorTable() };
             m_CommandList->setComputeState(state);
 
             m_CommandList->dispatch(
