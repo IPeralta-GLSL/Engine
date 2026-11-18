@@ -1,0 +1,11 @@
+{
+    "models": [
+        "IntelSponza/NewSponza_Main_glTF_003.gltf"
+    ],
+    "graph": [
+        {
+            "name": "IntelSponza",
+            "model": 0
+        }
+    ]
+}
