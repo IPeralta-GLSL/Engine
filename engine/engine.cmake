@@ -28,7 +28,7 @@ file(GLOB donut_engine_src
 )
 
 if (MSVC)
-    list (APPEND donut_engine_src donut.natvis)
+    list (APPEND donut_engine_src engine.natvis)
 endif()
 
 add_library(donut_engine STATIC EXCLUDE_FROM_ALL ${donut_engine_src})
