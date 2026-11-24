@@ -21,8 +21,8 @@ media
 **/*_d3d12.dir/*
 **/*_vk.dir/*
 **/Release/*
-thirdparty/streamline
-thirdparty/DLSS
+engine/thirdparty/streamline
+engine/thirdparty/DLSS
 /Sample/
 /SDKS/
 /Expiration/
