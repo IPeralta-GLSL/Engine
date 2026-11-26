@@ -1,4 +1,4 @@
-from . import stage_io, gltf_bounds, gltf_strip, props, scene_sync, operators, panels
+from . import stage_io, gltf_bounds, gltf_strip, gltf_textures, props, scene_sync, operators, panels
 
 _MODULES = (props, operators, panels)
 

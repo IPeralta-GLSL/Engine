@@ -1,11 +1,12 @@
 import json
 import math
 import os
+import shutil
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
-from . import gltf_strip, stage_io
+from . import gltf_strip, gltf_textures, stage_io
 
 STAGE_COLLECTION = "Donut Stage"
 ARCHTYPE_COLLECTION = "Donut Archtype"
@@ -254,6 +255,26 @@ def import_model_geometry(obj):
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+def import_model_textured(obj, max_size):
+    base_dir = bpy.context.scene.donut_scene.stage_dir or os.getcwd()
+    resolved = stage_io.resolve_model_path(obj.donut_prim.model.path, base_dir)
+    if not resolved:
+        return 0
+
+    temp_gltf, temp_dir = gltf_textures.prepare_textured(resolved, max_size)
+    try:
+        count = import_model_preview(obj, temp_gltf)
+        for image in bpy.data.images:
+            filepath = image.filepath
+            if filepath and os.path.abspath(filepath).startswith(temp_dir):
+                image.pack()
+        return count
+    finally:
+        if os.path.exists(temp_gltf):
+            os.remove(temp_gltf)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def import_stage(filepath):

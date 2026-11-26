@@ -49,7 +49,8 @@ class DONUT_PT_stage(bpy.types.Panel):
             row = layout.row(align=True)
             row.operator("donut.create_model_proxy", text="Proxy", icon="MESH_CUBE")
             row.operator("donut.import_model_meshes", text="Meshes", icon="MESH_DATA")
-            layout.operator("donut.import_model_preview", text="Import Full Model (textures)", icon="IMPORT")
+            row.operator("donut.import_model_textures", text="Textures", icon="TEXTURE")
+            layout.operator("donut.import_model_preview", text="Import Full Model (original)", icon="IMPORT")
 
         layout.separator()
 

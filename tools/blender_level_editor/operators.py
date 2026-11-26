@@ -260,6 +260,44 @@ class DONUT_OT_import_model_meshes(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class DONUT_OT_import_model_textures(bpy.types.Operator):
+    bl_idname = "donut.import_model_textures"
+    bl_label = "Import Textures"
+    bl_options = {"REGISTER", "UNDO"}
+
+    max_size: bpy.props.EnumProperty(
+        name="Texture Size",
+        items=(
+            ("512", "512", "Resize textures to 512 px (lowest memory)"),
+            ("1024", "1024", "Resize textures to 1024 px"),
+            ("2048", "2048", "Resize textures to 2048 px"),
+            ("0", "Original", "Keep original resolution (high memory)"),
+        ),
+        default="1024",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.donut_prim.is_prim and obj.donut_prim.has_model
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        obj = context.active_object
+        try:
+            count = scene_sync.import_model_textured(obj, int(self.max_size))
+        except Exception as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        if not count:
+            self.report({"WARNING"}, "No objects imported")
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Imported %d objects with textures" % count)
+        return {"FINISHED"}
+
+
 class DONUT_OT_create_model_proxy(bpy.types.Operator):
     bl_idname = "donut.create_model_proxy"
     bl_label = "Create Proxy"
@@ -372,6 +410,7 @@ _CLASSES = (
     DONUT_OT_create_level_editor_workspace,
     DONUT_OT_import_model_preview,
     DONUT_OT_import_model_meshes,
+    DONUT_OT_import_model_textures,
     DONUT_OT_create_model_proxy,
     DONUT_OT_load_archtype,
     DONUT_OT_save_archtype,
