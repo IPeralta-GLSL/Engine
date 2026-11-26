@@ -109,6 +109,80 @@ public:
         m_HasCamera = true;
     }
 
+    void SetStageFile(const std::filesystem::path& path)
+    {
+        m_StageFile = path;
+        std::error_code ec;
+        m_StageFileTime = std::filesystem::last_write_time(path, ec);
+        m_HasStageFileTime = !ec;
+    }
+
+    bool ReloadStage()
+    {
+        if (m_StageFile.empty())
+            return false;
+
+        if (!m_Stage.Load(m_StageFile))
+        {
+            log::warning("Failed to reload stage '%s'", m_StageFile.generic_string().c_str());
+            return false;
+        }
+
+        std::error_code ec;
+        m_StageFileTime = std::filesystem::last_write_time(m_StageFile, ec);
+        m_HasStageFileTime = !ec;
+
+        m_Selected = entt::null;
+        for (ecs::Prim prim : m_Stage.GetPrims())
+        {
+            m_Selected = prim.GetEntity();
+            break;
+        }
+
+        log::info("Stage reloaded: %s", m_StageFile.generic_string().c_str());
+        return true;
+    }
+
+    bool SaveStage()
+    {
+        if (m_StageFile.empty())
+            return false;
+
+        if (!m_Stage.Save(m_StageFile))
+        {
+            log::warning("Failed to save stage '%s'", m_StageFile.generic_string().c_str());
+            return false;
+        }
+
+        std::error_code ec;
+        m_StageFileTime = std::filesystem::last_write_time(m_StageFile, ec);
+        m_HasStageFileTime = !ec;
+
+        log::info("Stage saved: %s", m_StageFile.generic_string().c_str());
+        return true;
+    }
+
+    void Animate(float elapsedTimeSeconds) override
+    {
+        ImGui_Renderer::Animate(elapsedTimeSeconds);
+
+        if (m_StageFile.empty())
+            return;
+
+        m_ReloadPollTimer += elapsedTimeSeconds;
+        if (m_ReloadPollTimer < 0.25f)
+            return;
+        m_ReloadPollTimer = 0.f;
+
+        std::error_code ec;
+        const auto fileTime = std::filesystem::last_write_time(m_StageFile, ec);
+        if (ec)
+            return;
+
+        if (!m_HasStageFileTime || fileTime != m_StageFileTime)
+            ReloadStage();
+    }
+
     bool MouseButtonUpdate(int button, int action, int mods) override
     {
         bool consumed = app::ImGui_Renderer::MouseButtonUpdate(button, action, mods);
@@ -158,6 +232,12 @@ protected:
         ImGui::TextUnformatted("Engine Editor");
         ImGui::SameLine();
         ImGui::TextDisabled("|  %s  |  %zu prims  |  %.1f FPS", m_Stage.GetName().c_str(), m_Stage.GetPrimCount(), io.Framerate);
+        ImGui::SameLine();
+        if (ImGui::Button("Save Stage"))
+            SaveStage();
+        ImGui::SameLine();
+        if (ImGui::Button("Reload (F5)"))
+            ReloadStage();
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(panelX, topBarHeight));
@@ -570,6 +650,11 @@ private:
     ecs::Stage& m_Stage;
     entt::entity m_Selected = entt::null;
 
+    std::filesystem::path m_StageFile;
+    std::filesystem::file_time_type m_StageFileTime{};
+    bool m_HasStageFileTime = false;
+    float m_ReloadPollTimer = 0.f;
+
     dm::float4x4 m_ViewProj;
     dm::float3 m_CameraPos = dm::float3(0.f);
     bool m_HasCamera = false;
@@ -888,6 +973,7 @@ public:
                 m_StageUI.reset();
                 return false;
             }
+            m_StageUI->SetStageFile(stageFileName);
         }
 
         return true;
@@ -914,6 +1000,13 @@ public:
         if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         {
             m_EnableAnimations = !m_EnableAnimations;
+            return true;
+        }
+
+        if (key == GLFW_KEY_F5 && action == GLFW_PRESS)
+        {
+            if (m_StageUI)
+                m_StageUI->ReloadStage();
             return true;
         }
 

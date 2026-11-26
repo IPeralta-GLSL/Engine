@@ -4,6 +4,7 @@
 #include <donut/ecs/Prim.h>
 
 #include <entt/entt.hpp>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -13,6 +14,16 @@ namespace donut::ecs
 {
     
     struct PrimTag { };
+
+    struct ArchtypeRef
+    {
+        std::string path;
+    };
+
+    struct PrimIndex
+    {
+        uint32_t value = 0;
+    };
 
     
     class Stage

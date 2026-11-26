@@ -38,6 +38,80 @@ namespace
             style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.14f, 0.42f, 0.19f, 1.00f);
         }
 
+        void SetStageFile(const std::filesystem::path& path)
+        {
+            m_StageFile = path;
+            std::error_code ec;
+            m_StageFileTime = std::filesystem::last_write_time(path, ec);
+            m_HasStageFileTime = !ec;
+        }
+
+        bool ReloadStage()
+        {
+            if (m_StageFile.empty())
+                return false;
+
+            if (!m_Stage.Load(m_StageFile))
+            {
+                log::warning("Failed to reload stage '%s'", m_StageFile.generic_string().c_str());
+                return false;
+            }
+
+            std::error_code ec;
+            m_StageFileTime = std::filesystem::last_write_time(m_StageFile, ec);
+            m_HasStageFileTime = !ec;
+
+            m_Selected = entt::null;
+            for (Prim prim : m_Stage.GetPrims())
+            {
+                m_Selected = prim.GetEntity();
+                break;
+            }
+
+            log::info("Stage reloaded: %s", m_StageFile.generic_string().c_str());
+            return true;
+        }
+
+        bool SaveStage()
+        {
+            if (m_StageFile.empty())
+                return false;
+
+            if (!m_Stage.Save(m_StageFile))
+            {
+                log::warning("Failed to save stage '%s'", m_StageFile.generic_string().c_str());
+                return false;
+            }
+
+            std::error_code ec;
+            m_StageFileTime = std::filesystem::last_write_time(m_StageFile, ec);
+            m_HasStageFileTime = !ec;
+
+            log::info("Stage saved: %s", m_StageFile.generic_string().c_str());
+            return true;
+        }
+
+        void Animate(float elapsedTimeSeconds) override
+        {
+            app::ImGui_Renderer::Animate(elapsedTimeSeconds);
+
+            if (m_StageFile.empty())
+                return;
+
+            m_ReloadPollTimer += elapsedTimeSeconds;
+            if (m_ReloadPollTimer < 0.25f)
+                return;
+            m_ReloadPollTimer = 0.f;
+
+            std::error_code ec;
+            const auto fileTime = std::filesystem::last_write_time(m_StageFile, ec);
+            if (ec)
+                return;
+
+            if (!m_HasStageFileTime || fileTime != m_StageFileTime)
+                ReloadStage();
+        }
+
     protected:
         void buildUI() override
         {
@@ -58,6 +132,12 @@ namespace
             ImGui::Text("Stage: %s", m_Stage.GetName().c_str());
             ImGui::SameLine();
             ImGui::TextDisabled("(%zu prims)", m_Stage.GetPrimCount());
+            ImGui::SameLine();
+            if (ImGui::Button("Save Stage"))
+                SaveStage();
+            ImGui::SameLine();
+            if (ImGui::Button("Reload"))
+                ReloadStage();
             ImGui::Separator();
 
             ImGui::BeginChild("HierarchyList", ImVec2(0, 0), false);
@@ -229,6 +309,11 @@ namespace
 
         Stage& m_Stage;
         entt::entity m_Selected = entt::null;
+
+        std::filesystem::path m_StageFile;
+        std::filesystem::file_time_type m_StageFileTime{};
+        bool m_HasStageFileTime = false;
+        float m_ReloadPollTimer = 0.f;
     };
 }
 
@@ -275,6 +360,7 @@ int main(int __argc, const char** __argv)
         log::fatal("Cannot initialize the ImGui renderer");
         return 1;
     }
+    ui->SetStageFile(stagePath);
 
     deviceManager->AddRenderPassToBack(ui.get());
     deviceManager->RunMessageLoop();

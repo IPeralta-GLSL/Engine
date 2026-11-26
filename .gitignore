@@ -26,3 +26,5 @@ engine/thirdparty/DLSS
 /Sample/
 /SDKS/
 /Expiration/
+__pycache__/
+*.pyc
