@@ -13,81 +13,65 @@ _FLAG_NAMES = {
 }
 
 
-class DONUT_PT_stage(bpy.types.Panel):
-    bl_idname = "DONUT_PT_stage"
-    bl_label = "Donut Stage"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Stage"
+def draw_stage(layout, context):
+    props = context.scene.donut_scene
 
-    def draw(self, context):
-        layout = self.layout
-        props = context.scene.donut_scene
+    column = layout.column(align=True)
+    column.prop(props, "stage_name")
+    if props.stage_path:
+        column.label(text=props.stage_path, icon="FILE")
+    column.prop(props, "import_meshes_on_load")
 
-        column = layout.column(align=True)
-        column.prop(props, "stage_name")
-        if props.stage_path:
-            column.label(text=props.stage_path, icon="FILE")
-        column.prop(props, "import_meshes_on_load")
+    row = layout.row(align=True)
+    row.operator("donut.load_stage", text="Load", icon="FILEBROWSER")
+    row.operator("donut.save_stage", text="Save", icon="FILE_TICK")
 
+    layout.operator("donut.validate_stage", text="Validate", icon="CHECKMARK")
+
+    layout.separator()
+
+    row = layout.row(align=True)
+    row.operator("donut.add_prim", text="Add", icon="ADD")
+    row.operator("donut.duplicate_prim", text="Duplicate", icon="DUPLICATE")
+    row.operator("donut.remove_prim", text="Remove", icon="REMOVE")
+
+    layout.operator("donut.preview_in_engine", text="Preview in Engine", icon="PLAY")
+
+    obj = context.active_object
+    if obj is not None and obj.donut_prim.is_prim and obj.donut_prim.has_model:
         row = layout.row(align=True)
-        row.operator("donut.load_stage", text="Load", icon="FILEBROWSER")
-        row.operator("donut.save_stage", text="Save", icon="FILE_TICK")
+        row.operator("donut.create_model_proxy", text="Proxy", icon="MESH_CUBE")
+        row.operator("donut.import_model_meshes", text="Meshes", icon="MESH_DATA")
+        row.operator("donut.import_model_textures", text="Textures", icon="TEXTURE")
+        layout.operator("donut.import_model_preview", text="Import Full Model (original)", icon="IMPORT")
 
-        row = layout.row(align=True)
-        row.operator("donut.validate_stage", text="Validate", icon="CHECKMARK")
-        row.operator("donut.create_level_editor_workspace", text="Workspace", icon="WORKSPACE")
+    layout.separator()
 
-        layout.separator()
-
-        row = layout.row(align=True)
-        row.operator("donut.add_prim", text="Add Prim", icon="ADD")
-        row.operator("donut.remove_prim", text="Remove", icon="REMOVE")
-
-        obj = context.active_object
-        if obj is not None and obj.donut_prim.is_prim and obj.donut_prim.has_model:
-            row = layout.row(align=True)
-            row.operator("donut.create_model_proxy", text="Proxy", icon="MESH_CUBE")
-            row.operator("donut.import_model_meshes", text="Meshes", icon="MESH_DATA")
-            row.operator("donut.import_model_textures", text="Textures", icon="TEXTURE")
-            layout.operator("donut.import_model_preview", text="Import Full Model (original)", icon="IMPORT")
-
-        layout.separator()
-
-        count = sum(1 for item in context.scene.objects if item.donut_prim.is_prim)
-        layout.label(text="Prims: %d" % count)
+    count = sum(1 for item in context.scene.objects if item.donut_prim.is_prim)
+    layout.label(text="Prims: %d" % count)
 
 
-class DONUT_PT_prim_attributes(bpy.types.Panel):
-    bl_idname = "DONUT_PT_prim_attributes"
-    bl_label = "Prim Attributes"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Stage"
-    bl_options = {"DEFAULT_CLOSED"}
+def draw_entity(layout, context):
+    obj = context.active_object
 
-    def draw(self, context):
-        layout = self.layout
-        obj = context.active_object
+    if obj is None or not obj.donut_prim.is_prim:
+        layout.label(text="Select a prim", icon="INFO")
+        return
 
-        if obj is None or not obj.donut_prim.is_prim:
-            layout.label(text="Select a prim", icon="INFO")
-            return
+    prim = obj.donut_prim
+    if prim.is_template:
+        layout.label(text="Archtype template", icon="FILE_VOLUME")
+    layout.prop(prim, "prim_name")
+    layout.prop(prim, "archtype")
 
-        prim = obj.donut_prim
-        if prim.is_template:
-            layout.label(text="Archtype template", icon="FILE_VOLUME")
-        layout.prop(prim, "prim_name")
-        layout.prop(prim, "archtype")
+    for name in stage_io.ATTRIBUTE_ORDER:
+        _draw_attribute(layout, obj, prim, name)
 
-        for name in stage_io.ATTRIBUTE_ORDER:
-            _draw_attribute(layout, obj, prim, name)
-
-        extras = (prim.extra_json or "").strip()
-        if extras and extras != "{}":
-            box = layout.box()
-            box.label(text="Extra Attributes", icon="PRESET")
-            box.label(text=extras[:200])
+    extras = (prim.extra_json or "").strip()
+    if extras and extras != "{}":
+        box = layout.box()
+        box.label(text="Extra Attributes", icon="PRESET")
+        box.label(text=extras[:200])
 
 
 def _draw_attribute(layout, obj, prim, name):
@@ -107,7 +91,10 @@ def _draw_attribute(layout, obj, prim, name):
             column.prop(prim.transform, "rotation")
             column.prop(prim.transform, "scaling")
         else:
-            box.label(text="From object transform", icon="OBJECT_ORIGIN")
+            column = box.column(align=True)
+            column.prop(obj, "location")
+            column.prop(obj, "rotation_euler")
+            column.prop(obj, "scale")
     elif name == "Camera":
         column = box.column(align=True)
         if obj.type == "CAMERA":
@@ -144,12 +131,35 @@ def _draw_attribute(layout, obj, prim, name):
         box.prop(prim.model, "path")
 
 
-class DONUT_PT_archtype(bpy.types.Panel):
-    bl_idname = "DONUT_PT_archtype"
-    bl_label = "Donut Archtype"
+class DONUT_PT_stage(bpy.types.Panel):
+    bl_idname = "DONUT_PT_stage"
+    bl_label = "Stage"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Stage"
+    bl_category = "Level Editor"
+
+    def draw(self, context):
+        draw_stage(self.layout, context)
+
+
+class DONUT_PT_prim_attributes(bpy.types.Panel):
+    bl_idname = "DONUT_PT_prim_attributes"
+    bl_label = "Entity Attributes"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Level Editor"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        draw_entity(self.layout, context)
+
+
+class DONUT_PT_archtype(bpy.types.Panel):
+    bl_idname = "DONUT_PT_archtype"
+    bl_label = "Archetypes"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Level Editor"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -169,7 +179,35 @@ class DONUT_PT_archtype(bpy.types.Panel):
             layout.label(text="Load an archtype to edit it", icon="INFO")
 
 
-_CLASSES = (DONUT_PT_stage, DONUT_PT_prim_attributes, DONUT_PT_archtype)
+class DONUT_PT_stage_properties(bpy.types.Panel):
+    bl_idname = "DONUT_PT_stage_properties"
+    bl_label = "Stage"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "level_editor"
+
+    def draw(self, context):
+        draw_stage(self.layout, context)
+
+
+class DONUT_PT_entity_properties(bpy.types.Panel):
+    bl_idname = "DONUT_PT_entity_properties"
+    bl_label = "Entity Attributes"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "level_editor"
+
+    def draw(self, context):
+        draw_entity(self.layout, context)
+
+
+_CLASSES = (
+    DONUT_PT_stage,
+    DONUT_PT_prim_attributes,
+    DONUT_PT_archtype,
+    DONUT_PT_stage_properties,
+    DONUT_PT_entity_properties,
+)
 
 
 def register():

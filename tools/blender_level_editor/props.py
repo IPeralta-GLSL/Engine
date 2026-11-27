@@ -1,6 +1,12 @@
 import bpy
 
 
+def _on_prim_name_update(self, context):
+    obj = self.id_data
+    if isinstance(obj, bpy.types.Object) and self.prim_name and obj.name != self.prim_name:
+        obj.name = self.prim_name
+
+
 class DonutTransformProps(bpy.types.PropertyGroup):
     translation: bpy.props.FloatVectorProperty(name="Translation", size=3, default=(0.0, 0.0, 0.0))
     rotation: bpy.props.FloatVectorProperty(name="Rotation", size=4, default=(0.0, 0.0, 0.0, 1.0))
@@ -40,7 +46,7 @@ class DonutPrimProps(bpy.types.PropertyGroup):
     is_prim: bpy.props.BoolProperty(default=False)
     is_template: bpy.props.BoolProperty(default=False)
     stage_index: bpy.props.IntProperty(default=0)
-    prim_name: bpy.props.StringProperty(name="Name", default="Prim")
+    prim_name: bpy.props.StringProperty(name="Name", default="Prim", update=_on_prim_name_update)
     archtype: bpy.props.StringProperty(name="Archtype", default="")
     has_name: bpy.props.BoolProperty(name="Name", default=False)
     has_tag: bpy.props.BoolProperty(name="Tag", default=False)
@@ -63,6 +69,7 @@ class DonutSceneProps(bpy.types.PropertyGroup):
     stage_name: bpy.props.StringProperty(name="Stage Name", default="UntitledStage")
     stage_path: bpy.props.StringProperty(name="Stage Path", default="", subtype="FILE_PATH")
     stage_dir: bpy.props.StringProperty(name="Stage Directory", default="", subtype="DIR_PATH")
+    stage_source_dir: bpy.props.StringProperty(name="Stage Source Directory", default="", subtype="DIR_PATH")
     archtype_path: bpy.props.StringProperty(name="Archtype Path", default="", subtype="FILE_PATH")
     import_meshes_on_load: bpy.props.BoolProperty(name="Import Meshes on Load", default=True)
 

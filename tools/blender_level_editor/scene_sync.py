@@ -8,8 +8,8 @@ from mathutils import Matrix, Quaternion, Vector
 
 from . import gltf_strip, gltf_textures, stage_io
 
-STAGE_COLLECTION = "Donut Stage"
-ARCHTYPE_COLLECTION = "Donut Archtype"
+STAGE_COLLECTION = "Stage"
+ARCHTYPE_COLLECTION = "Archetypes"
 
 DEFAULT_ROTATION_LENGTH = 1.0
 
@@ -135,8 +135,9 @@ def _apply_transform(obj, transform):
         return
     obj.location = _to_blender_vector(transform.get("translation", (0.0, 0.0, 0.0)))
     rotation = transform.get("rotation", (0.0, 0.0, 0.0, 1.0))
+    obj.rotation_mode = "XYZ"
     if isinstance(rotation, (list, tuple)) and len(rotation) == 4:
-        obj.rotation_quaternion = _to_blender_quaternion(rotation)
+        obj.rotation_euler = _to_blender_quaternion(rotation).to_euler()
     obj.scale = _permute_scale(transform.get("scaling", (1.0, 1.0, 1.0)))
 
 
@@ -173,7 +174,7 @@ def _create_prim_object(index, default_name, attributes, collection):
         obj = bpy.data.objects.new(display_name, None)
         obj.empty_display_type = "PLAIN_AXES"
         obj.empty_display_size = 0.5
-        obj.rotation_mode = "QUATERNION"
+        obj.rotation_mode = "XYZ"
         _apply_transform(obj, attributes.get("Transform"))
 
     collection.objects.link(obj)
@@ -244,7 +245,7 @@ def _apply_attributes(obj, index, prim_name, attributes):
 
 
 def import_model_geometry(obj):
-    base_dir = bpy.context.scene.donut_scene.stage_dir or os.getcwd()
+    base_dir = bpy.context.scene.donut_scene.stage_source_dir or bpy.context.scene.donut_scene.stage_dir or os.getcwd()
     resolved = stage_io.resolve_model_path(obj.donut_prim.model.path, base_dir)
     if not resolved:
         return 0
@@ -258,7 +259,7 @@ def import_model_geometry(obj):
 
 
 def import_model_textured(obj, max_size):
-    base_dir = bpy.context.scene.donut_scene.stage_dir or os.getcwd()
+    base_dir = bpy.context.scene.donut_scene.stage_source_dir or bpy.context.scene.donut_scene.stage_dir or os.getcwd()
     resolved = stage_io.resolve_model_path(obj.donut_prim.model.path, base_dir)
     if not resolved:
         return 0
@@ -295,6 +296,7 @@ def import_stage(filepath):
     scene_props.stage_name = data["name"]
     scene_props.stage_path = data["path"]
     scene_props.stage_dir = data["base_dir"]
+    scene_props.stage_source_dir = data["base_dir"]
 
     if scene_props.import_meshes_on_load:
         for obj in objects:
@@ -402,6 +404,23 @@ def add_prim_from_archtype(filepath):
     obj.donut_prim.archtype = reference
     _select_object(obj)
     return obj
+
+
+def duplicate_prim(obj):
+    scene = bpy.context.scene
+    collection = _stage_collection(scene)
+    index = max((o.donut_prim.stage_index for o in _scene_prims(scene)), default=-1) + 1
+
+    copy = obj.copy()
+    if obj.data is not None:
+        copy.data = obj.data.copy()
+    copy.name = obj.donut_prim.prim_name + "_copy"
+    copy.donut_prim.stage_index = index
+    copy.donut_prim.prim_name = copy.name
+    copy.donut_prim.model_collection = ""
+    collection.objects.link(copy)
+    _select_object(copy)
+    return copy
 
 
 def _attributes_from_object(obj):
