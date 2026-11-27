@@ -35,7 +35,8 @@ def draw_stage(layout, context):
     row.operator("donut.duplicate_prim", text="Duplicate", icon="DUPLICATE")
     row.operator("donut.remove_prim", text="Remove", icon="REMOVE")
 
-    layout.operator("donut.preview_in_engine", text="Preview in Engine", icon="PLAY")
+    layout.operator("donut.preview_in_engine", text="Play", icon="PLAY")
+    layout.operator("donut.game_navigation", text="Game Nav (WASD)", icon="MOUSE_MOVE")
 
     obj = context.active_object
     if obj is not None and obj.donut_prim.is_prim and obj.donut_prim.has_model:
@@ -184,10 +185,21 @@ class DONUT_PT_stage_properties(bpy.types.Panel):
     bl_label = "Stage"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
-    bl_context = "level_editor"
+    bl_context = "level_stage"
 
     def draw(self, context):
         draw_stage(self.layout, context)
+
+
+class DONUT_PT_hierarchy_properties(bpy.types.Panel):
+    bl_idname = "DONUT_PT_hierarchy_properties"
+    bl_label = "Stage Hierarchy"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "level_hierarchy"
+
+    def draw(self, context):
+        draw_hierarchy(self.layout, context)
 
 
 class DONUT_PT_entity_properties(bpy.types.Panel):
@@ -201,11 +213,67 @@ class DONUT_PT_entity_properties(bpy.types.Panel):
         draw_entity(self.layout, context)
 
 
+def draw_hierarchy(layout, context):
+    prims = [o for o in context.scene.objects if o.donut_prim.is_prim and not o.donut_prim.is_template]
+    prims.sort(key=lambda o: (o.donut_prim.stage_index, o.name))
+    if not prims:
+        layout.label(text="No entities. Load a stage.", icon="INFO")
+        return
+    for obj in prims:
+        row = layout.row(align=True)
+        icon = "OUTLINER_OB_CAMERA" if obj.type == "CAMERA" else (
+            "OUTLINER_OB_LIGHT" if obj.type == "LIGHT" else "OUTLINER_OB_EMPTY")
+        op = row.operator("donut.select_prim", text=obj.donut_prim.prim_name, icon=icon,
+                          emboss=obj == context.active_object)
+        op.prim_name = obj.donut_prim.prim_name
+
+
+class DONUT_PT_hierarchy(bpy.types.Panel):
+    bl_idname = "DONUT_PT_hierarchy"
+    bl_label = "Hierarchy"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Level Editor"
+
+    def draw(self, context):
+        draw_hierarchy(self.layout, context)
+
+
+class DONUT_PT_assets(bpy.types.Panel):
+    bl_idname = "DONUT_PT_assets"
+    bl_label = "Assets"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Level Editor"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("donut.load_archtype", text="Load Archetype", icon="FILEBROWSER")
+        templates = [o for o in context.scene.objects if o.donut_prim.is_template]
+        if not templates:
+            layout.label(text="No archetypes loaded.", icon="INFO")
+        for obj in templates:
+            op = layout.operator("donut.add_prim_from_archtype", text=obj.donut_prim.prim_name, icon="ADD")
+            op.filepath = obj.donut_prim.archtype
+        layout.separator()
+        obj = context.active_object
+        if obj is not None and obj.donut_prim.is_prim and obj.donut_prim.has_model:
+            layout.label(text="Model: %s" % obj.donut_prim.model.path, icon="MESH_DATA")
+            row = layout.row(align=True)
+            row.operator("donut.create_model_proxy", text="Proxy", icon="MESH_CUBE")
+            row.operator("donut.import_model_meshes", text="Meshes", icon="MESH_DATA")
+            row.operator("donut.import_model_textures", text="Textures", icon="TEXTURE")
+
+
 _CLASSES = (
     DONUT_PT_stage,
     DONUT_PT_prim_attributes,
     DONUT_PT_archtype,
+    DONUT_PT_hierarchy,
+    DONUT_PT_assets,
     DONUT_PT_stage_properties,
+    DONUT_PT_hierarchy_properties,
     DONUT_PT_entity_properties,
 )
 

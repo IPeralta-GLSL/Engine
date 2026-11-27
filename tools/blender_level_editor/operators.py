@@ -149,7 +149,8 @@ def _configure_workspace(workspace):
                         continue
                     space.show_region_toolbar = False
                     space.show_region_tool_header = False
-                    space.show_region_ui = False
+                    space.show_region_ui = True
+                    space.show_region_header = False
                     space.shading.type = "SOLID"
                     space.show_gizmo = True
                     space.show_gizmo_navigate = False
@@ -160,10 +161,13 @@ def _configure_workspace(workspace):
                     space.overlay.show_relationship_lines = False
                     space.overlay.show_floor = True
             elif area.type == "PROPERTIES":
+                right = area.x > screen.width * 0.5
+                top = area.y > screen.height * 0.5
+                context_name = "level_hierarchy" if (right and top) else ("level_editor" if right else "level_stage")
                 for space in area.spaces:
                     if space.type == "PROPERTIES":
                         try:
-                            space.context = "level_editor"
+                            space.context = context_name
                         except (TypeError, RuntimeError):
                             pass
             elif area.type == "FILE_BROWSER":
@@ -484,9 +488,41 @@ class DONUT_OT_duplicate_prim(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class DONUT_OT_select_prim(bpy.types.Operator):
+    bl_idname = "donut.select_prim"
+    bl_label = "Select Entity"
+    bl_options = {"REGISTER", "UNDO"}
+
+    prim_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        for obj in context.scene.objects:
+            if obj.donut_prim.is_prim and obj.donut_prim.prim_name == self.prim_name:
+                for other in context.selected_objects:
+                    other.select_set(False)
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                return {"FINISHED"}
+        return {"CANCELLED"}
+
+
+class DONUT_OT_game_navigation(bpy.types.Operator):
+    bl_idname = "donut.game_navigation"
+    bl_label = "Game Navigation (WASD)"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        try:
+            bpy.ops.view3d.walk("INVOKE_DEFAULT")
+        except RuntimeError as error:
+            self.report({"WARNING"}, str(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class DONUT_OT_preview_in_engine(bpy.types.Operator):
     bl_idname = "donut.preview_in_engine"
-    bl_label = "Preview in Engine"
+    bl_label = "Play"
     bl_options = {"REGISTER"}
 
     def execute(self, context):
@@ -536,6 +572,8 @@ _CLASSES = (
     DONUT_OT_add_prim_from_archtype,
     DONUT_OT_duplicate_prim,
     DONUT_OT_preview_in_engine,
+    DONUT_OT_game_navigation,
+    DONUT_OT_select_prim,
 )
 
 
@@ -556,7 +594,8 @@ class DONUT_MT_level_editor(bpy.types.Menu):
         layout.operator("donut.add_prim_from_archtype", text="Instance Archetype", icon="ADD")
         layout.operator("donut.remove_prim", text="Remove Entity", icon="REMOVE")
         layout.separator()
-        layout.operator("donut.preview_in_engine", text="Preview in Engine", icon="PLAY")
+        layout.operator("donut.game_navigation", text="Game Nav (WASD)", icon="MOUSE_MOVE")
+        layout.operator("donut.preview_in_engine", text="Play", icon="PLAY")
         layout.separator()
         layout.operator("donut.create_model_proxy", text="Model Proxy", icon="MESH_CUBE")
         layout.operator("donut.import_model_meshes", text="Import Meshes", icon="MESH_DATA")
@@ -568,6 +607,49 @@ class DONUT_MT_level_editor(bpy.types.Menu):
 
 def _draw_level_editor_menu(self, context):
     self.layout.menu("DONUT_MT_level_editor", icon="WORLD")
+
+
+def _draw_file_menu(self, context):
+    layout = self.layout
+    layout.separator()
+    layout.operator("donut.load_stage", text="Open Stage...", icon="FILEBROWSER")
+    layout.operator("donut.save_stage", text="Save Stage", icon="FILE_TICK")
+    layout.operator("donut.preview_in_engine", text="Play", icon="PLAY")
+
+
+_last_workspace_name = None
+
+
+def _start_walk_navigation():
+    window = bpy.context.window
+    if window is None or window.screen is None:
+        return
+    area = next((a for a in window.screen.areas if a.type == "VIEW_3D"), None)
+    if area is None:
+        return
+    region = next((r for r in area.regions if r.type == "WINDOW"), None)
+    try:
+        with bpy.context.temp_override(window=window, screen=window.screen, area=area, region=region):
+            bpy.ops.view3d.walk("INVOKE_DEFAULT")
+    except Exception:
+        pass
+
+
+def _watch_workspace():
+    global _last_workspace_name
+    if bpy.app.background:
+        return 0.2
+    try:
+        window = bpy.context.window
+        if window is not None and window.workspace is not None:
+            name = window.workspace.name
+            if name != _last_workspace_name:
+                _last_workspace_name = name
+                if name == "Level Editor":
+                    _start_walk_navigation()
+    except Exception:
+        pass
+    return 0.2
 
 
 @persistent
@@ -583,12 +665,18 @@ def register():
         bpy.utils.register_class(cls)
     bpy.utils.register_class(DONUT_MT_level_editor)
     bpy.types.TOPBAR_MT_editor_menus.append(_draw_level_editor_menu)
+    bpy.types.TOPBAR_MT_file.append(_draw_file_menu)
     bpy.app.handlers.load_post.append(_on_load_post)
+    bpy.app.timers.register(_watch_workspace, first_interval=0.5, persistent=True)
 
 
 def unregister():
     try:
         bpy.app.handlers.load_post.remove(_on_load_post)
+    except (ValueError, RuntimeError):
+        pass
+    try:
+        bpy.types.TOPBAR_MT_file.remove(_draw_file_menu)
     except (ValueError, RuntimeError):
         pass
     try:
