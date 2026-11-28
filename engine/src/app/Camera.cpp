@@ -227,6 +227,33 @@ void FirstPersonCamera::Animate(float deltaT)
     }
 }
 
+void FirstPersonCamera::GamepadUpdate(float leftX, float leftY, float rightX, float rightY, float upDown, float speedMul, float deltaT)
+{
+    const float dead = 0.15f;
+    auto dz = [&](float v) { return std::abs(v) < dead ? 0.f : v; };
+    leftX = dz(leftX); leftY = dz(leftY); rightX = dz(rightX); rightY = dz(rightY); upDown = dz(upDown);
+
+    bool dirty = false;
+    affine3 cameraRotation = affine3::identity();
+    if (rightX != 0.f || rightY != 0.f)
+    {
+        const float yaw = rightX * deltaT * 2.0f;
+        const float pitch = rightY * deltaT * 2.0f;
+        cameraRotation = rotation(float3(0.f, 1.f, 0.f), -yaw);
+        cameraRotation = rotation(m_CameraRight, -pitch) * cameraRotation;
+        dirty = true;
+    }
+
+    float3 cameraMoveVec = 0.f;
+    const float moveStep = deltaT * m_MoveSpeed * speedMul;
+    if (leftY != 0.f) { cameraMoveVec += m_CameraDir * (-leftY * moveStep); dirty = true; }
+    if (leftX != 0.f) { cameraMoveVec += m_CameraRight * (leftX * moveStep); dirty = true; }
+    if (upDown != 0.f) { cameraMoveVec += m_CameraUp * (upDown * moveStep); dirty = true; }
+
+    if (dirty)
+        UpdateCamera(cameraMoveVec, cameraRotation);
+}
+
 void FirstPersonCamera::AnimateSmooth(float deltaT)
 {
     const float c_DampeningRate = 7.5f;

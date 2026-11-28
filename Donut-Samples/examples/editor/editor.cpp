@@ -11,6 +11,7 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <GLFW/glfw3.h>
 
 #define main rt_bindless_entry_main
 #define WinMain rt_bindless_entry_winmain
@@ -406,12 +407,36 @@ public:
         ImGui_Renderer::BackBufferResizing();
     }
 
+    bool JoystickAxisUpdate(int axis, float value) override
+    {
+        if (axis >= 0 && axis < 6)
+            m_PadAxes[axis] = value;
+        return false;
+    }
+
+    bool JoystickButtonUpdate(int button, bool pressed) override
+    {
+        if (button >= 0 && button < 16)
+            m_PadButtons[button] = pressed;
+        return false;
+    }
+
     void Animate(float deltaT) override
     {
         if (m_RtReady)
             m_Rt.Animate(deltaT);
         else
             m_Camera.Animate(deltaT);
+
+        const float lt = (m_PadAxes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.f) * 0.5f;
+        const float rt = (m_PadAxes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.f) * 0.5f;
+        const float upDown = rt - lt;
+        const float speed = m_PadButtons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER] ? 3.f : 1.f;
+        if (m_RtReady)
+            m_Rt.GamepadUpdate(m_PadAxes[0], m_PadAxes[1], m_PadAxes[2], m_PadAxes[3], upDown, speed, deltaT);
+        else
+            m_Camera.GamepadUpdate(m_PadAxes[0], m_PadAxes[1], m_PadAxes[2], m_PadAxes[3], upDown, speed, deltaT);
+
         ImGui_Renderer::Animate(deltaT);
     }
 
@@ -971,6 +996,8 @@ private:
     std::vector<std::filesystem::path> m_Models;
 
     app::FirstPersonCamera m_Camera;
+    float m_PadAxes[6] = {};
+    bool m_PadButtons[16] = {};
     ImVec2 m_ViewportSize = ImVec2(800, 600);
     ImVec2 m_ViewportPos = ImVec2(0, 0);
     bool m_ViewportHovered = false;

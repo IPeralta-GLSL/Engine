@@ -754,6 +754,11 @@ public:
         m_Camera.LookAt(pos, target);
     }
 
+    void GamepadUpdate(float lx, float ly, float rx, float ry, float ud, float sp, float dt)
+    {
+        m_Camera.GamepadUpdate(lx, ly, rx, ry, ud, sp, dt);
+    }
+
     void FrameCamera()
     {
         if (!m_Scene)
