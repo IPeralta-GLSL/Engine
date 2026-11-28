@@ -274,6 +274,16 @@ public:
         else
             Log("RT renderer unavailable - using proxy fallback");
 
+        for (ecs::Prim prim : m_Stage.GetPrims())
+        {
+            if (prim.HasAttribute<ecs::NameAttribute>() && prim.GetAttribute<ecs::NameAttribute>().value == "Curtains")
+            {
+                m_Hidden.insert(prim.GetEntity());
+                if (m_RtReady)
+                    m_Rt.SetCurtainsVisible(false);
+            }
+        }
+
         return true;
     }
 

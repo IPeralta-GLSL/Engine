@@ -1262,8 +1262,11 @@ public:
 
         for (const auto& instance : m_Scene->GetSceneGraph()->GetMeshInstances())
         {
-            const std::string nodeName = instance->GetNode()->GetName();
-            if (nodeName == "Curtains" ? !m_CurtainsVisible : !m_MainVisible)
+            auto* topNode = instance->GetNode();
+            while (topNode->GetParent() && topNode->GetParent()->GetParent())
+                topNode = topNode->GetParent();
+            const std::string modelName = topNode->GetName();
+            if (modelName == "Curtains" ? !m_CurtainsVisible : !m_MainVisible)
                 continue;
             nvrhi::rt::InstanceDesc instanceDesc;
             instanceDesc.bottomLevelAS = instance->GetMesh()->accelStruct;
