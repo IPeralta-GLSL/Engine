@@ -20,7 +20,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-project(donut)
+project(threshold)
 cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_CXX_STANDARD 17)

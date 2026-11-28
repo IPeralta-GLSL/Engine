@@ -1,95 +1,80 @@
-# Donut
+# Threshold Engine
 
-Donut is a real-time rendering framework built by NVIDIA DevTech for use in various prototype renderers and code samples. It provides a collection of reusable and somewhat extensible rendering passes that can be put together in an application, and a system for loading a scene and maintaining its component graph.
+Threshold Engine is a real-time graphics engine and rendering framework **based on [Donut](https://github.com/NVIDIA-RTX/Donut)**, the open-source (MIT) rendering framework originally created by NVIDIA DevTech. Threshold Engine keeps Donut's reusable rendering passes, scene graph and graphics-API abstraction, and extends them with an integrated ImGui level editor, an ECS-based stage/attribute system, and ray-traced sample renderers.
 
-Donut is **not** a game engine. It does not provide any means for creating interactive experiences, such as actors or navigation.
+It is a rendering/framework layer, not a full gameplay engine: it provides rendering, scene import, tooling and application scaffolding, while game logic lives in the application.
 
-Donut has originated from the VRWorks Multi-Projection SDK and has been improved and evolved since. Different versions of Donut have been used to build the Asteroids demo, the DLSS SDK, and the RTXDI SDK.
+## Heritage
+
+The underlying Donut framework originated from the VRWorks Multi-Projection SDK and has been used to build NVIDIA's Asteroids demo, the DLSS SDK and the RTXDI SDK. Threshold Engine builds on that foundation; see `LICENSE.txt` and `ThirdPartyLicenses.txt` for the original NVIDIA copyright and license notices, which are retained.
 
 ## Requirements
 
 * Windows or Linux (x64 or ARM64)
-* CMake 3.31
-* A C++ 17 compiler (Visual Studio 2022, GCC 11 or Clang 14)
-* A shader compiler (FXC for DX11, DXC for DX12, DXC-SPIR-V for Vulkan - the newer the better)
+* CMake 3.31+
+* A C++17 compiler (Visual Studio 2022, GCC 11+ or Clang 14+)
+* A shader compiler (FXC for DX11, DXC for DX12, DXC-SPIR-V for Vulkan)
 
 ## Dependencies
 
-Required (all included as git submodules):
+All dependencies are vendored under `thirdparty/`:
 
-* **cgltf** to load glTF scenes
-* **JsonCpp** to read and write JSON scene and configuration files
-* **stb** to read and write textures and other images
-
-Optional (also included as git submodules but can be disabled through CMake variables):
-
-* **NVRHI**, **ImGUI**, and **glfw** for rendering (`DONUT_WITH_NVRHI`)
-* **tinyexr** to read EXR images (`DONUT_WITH_TINYEXR`)
-
-## Examples
-
-Example projects that use Donut can be found in a separate repository: [Donut-Samples](https://github.com/NVIDIA-RTX/Donut-Samples).
-
-## Build
-
-Donut is not set up to be built as a separate project. It should always be included as a submodule into a larger CMake-based project. Follow the instructions for each project to get it built.
+* **cgltf** — glTF scene loading
+* **JsonCpp** — JSON scene/configuration files
+* **stb** — image I/O
+* **NVRHI**, **Dear ImGui**, **GLFW** — rendering, UI and windowing (`DONUT_WITH_NVRHI`)
+* **tinyexr** — EXR images (`DONUT_WITH_TINYEXR`)
+* **EnTT** — ECS for the stage/attribute system
 
 ## Structure
 
-Donut consists of 4 major subsystems, represented as separate static libraries:
+Threshold Engine is organized as static libraries:
 
-* `donut_core` provides the basic functionality, including math, virtual file system (VFS), logging, JSON and other utilities. The core module does not include any graphics functions.
-* `donut_engine` implements scene import and maintenance, animations, materials, texture cache, descriptor table management, console variables, and basic audio. Depends on `donut_core`.
-* `donut_render` provides a collection of rendering passes, such as forward and deferred shading, temporal AA, SSAO, shadow maps, procedural sky, tone mapping, and bloom. Depends on `donut_core` and `donut_engine`.
-* `donut_app` is a framework for creating interactive applications and it includes the graphics device managers, UI bindings and utilities, camera, and media file systems. Depends on `donut_core` and `donut_engine`.
+* `threshold_core` — math, VFS, logging, JSON and utilities (no graphics).
+* `threshold_engine` — scene import/maintenance, animations, materials, texture cache, descriptor tables, console variables.
+* `threshold_render` — rendering passes: forward/deferred shading, TAA, SSAO, shadow maps, procedural sky, tone mapping, bloom.
+* `threshold_app` — application framework: graphics device managers, UI bindings, camera, media file systems.
+* `threshold_ecs` — ECS stage/prim/attribute system used by the editor and samples.
 
-The engine and render modules require some shaders, which can be found in the `shaders` folder and built with the `donut_shaders` target.
+Engine/render shaders live in `shaders/` and are built by the `threshold_shaders` target.
+
+## Editor
+
+`Donut-Samples/examples/editor` builds the **Threshold Engine Editor**: a Dear ImGui docking workspace (Stage, Attribute, Content, Console) whose viewport is the engine's own ray-traced renderer (bindless RT + denoised shadows + SSAO + bloom + tone mapping) rendered full-window with the UI overlaid. Supports mouse/keyboard and gamepad navigation, stage open/save, archtype instancing and live attribute editing.
+
+## Examples
+
+Sample projects live in [`Donut-Samples/`](../Donut-Samples/README.md) in this repository, including the editor, bindless ray tracing, deferred shading, meshlets, and more.
+
+## Build
+
+The engine is consumed as part of a larger CMake project (the samples):
+
+```
+cmake -S Donut-Samples -B build
+cmake --build build -j8
+```
+
+Binaries are placed in `Donut-Samples/bin/`.
 
 ## Features
 
-### Graphics API support
+### Graphics APIs
 
-Most interaction with graphics APIs is done through the NVRHI abstraction layer. Donut and NVRHI support the following GAPIs:
-
-* Vulkan 1.2, requires Vulkan headers version 1.2.162 or later; included as a submodule of NVRHI (`DONUT_WITH_VULKAN`)
-* Direct3D 12, requires Windows SDK version 19041 or later (`DONUT_WITH_DX12`)
-* Direct3D 11, requires some compatible version of Windows SDK (`DONUT_WITH_DX11`)
-
-Note that NVRHI does not provide any means to create the GAPI devices or windows, that functionality is handled by the `DeviceManager` class and its descendants in `donut_app`.
+Through NVRHI: Vulkan 1.2+, Direct3D 12 (Windows SDK 19041+), Direct3D 11. Device/window creation is handled by `DeviceManager` in `threshold_app`.
 
 ### Scene formats
 
-In this version, Donut can only import [glTF 2.0](https://github.com/KhronosGroup/glTF) models with some limitations:
-
-* No morph targets
-* No KTX2 textures (but DDS textures are supported)
-
-Supported glTF extensions:
-* `KHR_materials_pbrSpecularGlossiness`
-* `KHR_materials_transmission`
-* `KHR_lights_punctual`
-* `MSFT_texture_dds`.
-
-In addition to glTF, Donut supports its own [JSON-based scene layout files](doc/SceneFile.md). Those files can load multiple glTF models and combine them into a larger scene graph, also add lights, cameras, animations, and apply animations to scene nodes imported from the models using their paths.
+glTF 2.0 import (no morph targets, no KTX2; DDS supported), plus JSON-based [scene layout files](doc/SceneFile.md) that combine multiple models, lights, cameras and animations. Supported glTF extensions: `KHR_materials_pbrSpecularGlossiness`, `KHR_materials_transmission`, `KHR_lights_punctual`, `MSFT_texture_dds`.
 
 ### Render passes
 
-For a full list of render passes, refer to the headers in the [include/donut/render](include/donut/render) folder.
-
-The most useful passes are:
-
-* Forward shading
-* G-buffer fill
-* Deferred shading
-* Temporal anti-aliasing
-* Adaptive tone mapping
-* SSAO
-* Procedural sky
+Forward shading, G-buffer fill, deferred shading, temporal AA, adaptive tone mapping, SSAO, procedural sky, bloom. See [include/donut/render](include/donut/render).
 
 ### Ray tracing
 
-Donut does not provide any ray tracing passes or even maintain acceleration structures (AS'es). That is mostly because the requirements for ray tracing AS'es are different in each application, and those affect the passes that use the AS'es. But it does provide a generic bindless resource table that is populated with textures and geometry data buffers when the scene is loaded. Building acceleration structures for a scene can be easily handled on the application side using the data structures provided by Donut's scene representation and the NVRHI abstractions.
+The framework provides a bindless resource table populated with textures and geometry buffers at scene load; acceleration structures and RT passes are built on the application side (see the bindless ray-tracing sample and the editor viewport).
 
 ## License
 
-Donut is licensed under the [MIT License](LICENSE.txt).
+Threshold Engine is licensed under the [MIT License](LICENSE.txt). Portions derived from Donut retain NVIDIA's copyright notice.

@@ -20,7 +20,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-file(GLOB donut_engine_src
+file(GLOB threshold_engine_src
     include/donut/engine/*.h
     src/engine/*.cpp
     src/engine/*.c
@@ -28,38 +28,38 @@ file(GLOB donut_engine_src
 )
 
 if (MSVC)
-    list (APPEND donut_engine_src engine.natvis)
+    list (APPEND threshold_engine_src engine.natvis)
 endif()
 
-add_library(donut_engine STATIC EXCLUDE_FROM_ALL ${donut_engine_src})
-target_include_directories(donut_engine PUBLIC include)
+add_library(threshold_engine STATIC EXCLUDE_FROM_ALL ${threshold_engine_src})
+target_include_directories(threshold_engine PUBLIC include)
 
-target_link_libraries(donut_engine donut_core nvrhi jsoncpp_static stb cgltf ShaderMakeBlob)
+target_link_libraries(threshold_engine threshold_core nvrhi jsoncpp_static stb cgltf ShaderMakeBlob)
 
-add_dependencies(donut_engine donut_shaders)
+add_dependencies(threshold_engine threshold_shaders)
 
 if(WIN32)
-    target_compile_definitions(donut_engine PUBLIC NOMINMAX)
+    target_compile_definitions(threshold_engine PUBLIC NOMINMAX)
 endif()
 
 if (DONUT_WITH_AUDIO)
-    target_link_libraries(donut_engine Xaudio2)
-    target_compile_definitions(donut_engine PUBLIC DONUT_WITH_AUDIO)
+    target_link_libraries(threshold_engine Xaudio2)
+    target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_AUDIO)
 endif()
 
 if (DONUT_WITH_TINYEXR)
-    target_link_libraries(donut_engine tinyexr)
-    target_compile_definitions(donut_engine PUBLIC DONUT_WITH_TINYEXR)
+    target_link_libraries(threshold_engine tinyexr)
+    target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_TINYEXR)
 endif()
 
-set_target_properties(donut_engine PROPERTIES FOLDER Donut)
+set_target_properties(threshold_engine PROPERTIES FOLDER Donut)
 
-target_compile_definitions(donut_engine PUBLIC DONUT_WITH_DX11=$<BOOL:${DONUT_WITH_DX11}>)
-target_compile_definitions(donut_engine PUBLIC DONUT_WITH_DX12=$<BOOL:${DONUT_WITH_DX12}>)
-target_compile_definitions(donut_engine PUBLIC DONUT_WITH_VULKAN=$<BOOL:${DONUT_WITH_VULKAN}>)
-target_compile_definitions(donut_engine PUBLIC DONUT_WITH_STATIC_SHADERS=$<BOOL:${DONUT_WITH_STATIC_SHADERS}>)
-target_compile_definitions(donut_engine PUBLIC DONUT_WITH_AFTERMATH=$<BOOL:${DONUT_WITH_AFTERMATH}>)
+target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_DX11=$<BOOL:${DONUT_WITH_DX11}>)
+target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_DX12=$<BOOL:${DONUT_WITH_DX12}>)
+target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_VULKAN=$<BOOL:${DONUT_WITH_VULKAN}>)
+target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_STATIC_SHADERS=$<BOOL:${DONUT_WITH_STATIC_SHADERS}>)
+target_compile_definitions(threshold_engine PUBLIC DONUT_WITH_AFTERMATH=$<BOOL:${DONUT_WITH_AFTERMATH}>)
 
 if (DONUT_WITH_STATIC_SHADERS)
-target_include_directories(donut_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+target_include_directories(threshold_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 endif()

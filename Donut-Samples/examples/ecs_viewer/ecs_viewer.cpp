@@ -328,7 +328,7 @@ int main(int __argc, const char** __argv)
     app::DeviceManager* deviceManager = app::DeviceManager::Create(api);
 
     app::DeviceCreationParameters deviceParams;
-    if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, "Donut ECS: Stage Hierarchy"))
+    if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, "Threshold Engine ECS: Stage Hierarchy"))
     {
         log::fatal("Cannot initialize a graphics device");
         return 1;

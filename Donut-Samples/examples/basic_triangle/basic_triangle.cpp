@@ -29,7 +29,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Basic Triangle";
+static const char* g_WindowTitle = "Threshold Engine: Basic Triangle";
 
 class BasicTriangle : public app::IRenderPass
 {

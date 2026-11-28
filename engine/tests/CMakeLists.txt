@@ -22,13 +22,13 @@
 
 # build small library of common untilities for tests
 
-add_library(donut_tests_utils STATIC src/utils.cpp)
-target_include_directories(donut_tests_utils PUBLIC "include")
-set_property(TARGET donut_tests_utils PROPERTY FOLDER "Donut/donut_tests")
+add_library(threshold_tests_utils STATIC src/utils.cpp)
+target_include_directories(threshold_tests_utils PUBLIC "include")
+set_property(TARGET threshold_tests_utils PROPERTY FOLDER "Threshold/threshold_tests")
 
 # XXXX mk : CTest does not create (yet?) a default build target for all tests
-add_custom_target(donut_all_tests)
-set_property(TARGET donut_all_tests PROPERTY FOLDER "Donut/donut_tests")
+add_custom_target(threshold_all_tests)
+set_property(TARGET threshold_all_tests PROPERTY FOLDER "Threshold/threshold_tests")
 
 #
 # Add tests for each donut module

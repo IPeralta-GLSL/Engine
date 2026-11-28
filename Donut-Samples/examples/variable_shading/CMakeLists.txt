@@ -27,7 +27,7 @@ file(GLOB sources "*.cpp" "*.h")
 set(project variable_shading)
 set(folder "Examples/Variable Shading")
 
-donut_compile_shaders(
+threshold_compile_shaders(
     TARGET ${project}_shaders
     PROJECT_NAME "Variable Shading"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
@@ -38,7 +38,7 @@ donut_compile_shaders(
 )
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_core donut_engine donut_app donut_render)
+target_link_libraries(${project} threshold_core threshold_engine threshold_app threshold_render)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 

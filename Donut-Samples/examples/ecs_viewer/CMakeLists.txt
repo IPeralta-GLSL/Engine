@@ -4,7 +4,7 @@ set(project ecs_viewer)
 set(folder "Examples/ECS Viewer")
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_app donut_ecs)
+target_link_libraries(${project} threshold_app threshold_ecs)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 
 if (MSVC)

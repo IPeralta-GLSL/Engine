@@ -31,7 +31,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Vertex Buffer";
+static const char* g_WindowTitle = "Threshold Engine: Vertex Buffer";
 
 struct Vertex
 {

@@ -27,7 +27,7 @@ file(GLOB sources "*.cpp" "*.h")
 set(project meshlets)
 set(folder "Examples/Meshlets")
 
-donut_compile_shaders(
+threshold_compile_shaders(
     TARGET ${project}_shaders
     PROJECT_NAME "Meshlets"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
@@ -37,7 +37,7 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader")
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_app donut_engine)
+target_link_libraries(${project} threshold_app threshold_engine)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 

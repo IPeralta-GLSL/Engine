@@ -33,7 +33,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Aftermath";
+static const char* g_WindowTitle = "Threshold Engine: Aftermath";
 
 // The sample currently support two types of crashes: timeout and pagefault
 // A timeout happens when a single workload runs over the TDR timeout limit (default 2 seconds on Windows)

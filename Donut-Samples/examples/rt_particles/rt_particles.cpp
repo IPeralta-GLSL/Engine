@@ -41,7 +41,7 @@ using namespace donut::math;
 
 #include "rt_particles_cb.h"
 
-static const char* g_WindowTitle = "Donut Example: Ray Traced Particles";
+static const char* g_WindowTitle = "Threshold Engine: Ray Traced Particles";
 
 constexpr uint32_t c_MaxParticles = 1024;
 constexpr uint32_t c_IndicesPerQuad = 6;

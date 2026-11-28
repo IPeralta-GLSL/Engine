@@ -27,7 +27,7 @@ file(GLOB sources "*.cpp" "*.h")
 set(project rt_triangle)
 set(folder "Examples/Ray Traced Triangle")
 
-donut_compile_shaders(
+threshold_compile_shaders(
     TARGET ${project}_shaders
     PROJECT_NAME "Ray Traced Triangle"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
@@ -38,6 +38,6 @@ donut_compile_shaders(
 )
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_app donut_engine)
+target_link_libraries(${project} threshold_app threshold_engine)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})

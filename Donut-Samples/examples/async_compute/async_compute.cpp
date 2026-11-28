@@ -34,7 +34,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Async Compute";
+static const char* g_WindowTitle = "Threshold Engine: Async Compute";
 
 class TextureQueue
 {

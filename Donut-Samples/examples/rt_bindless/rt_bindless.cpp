@@ -57,7 +57,7 @@ using namespace donut::math;
 #include "denoise_cb.h"
 #include "cmaa2_pass.h"
 
-static const char* g_WindowTitle = "Donut Example: Bindless Ray Tracing";
+static const char* g_WindowTitle = "Threshold Engine: Bindless Ray Tracing";
 
 struct FrameConstants
 {

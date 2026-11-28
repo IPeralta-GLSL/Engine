@@ -38,7 +38,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Threaded Rendering";
+static const char* g_WindowTitle = "Threshold Engine: Threaded Rendering";
 
 class ThreadedRendering : public app::ApplicationBase
 {

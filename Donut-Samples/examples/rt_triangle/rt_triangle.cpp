@@ -34,7 +34,7 @@
 using namespace donut;
 using namespace donut::math;
 
-static const char* g_WindowTitle = "Donut Example: Ray Traced Triangle";
+static const char* g_WindowTitle = "Threshold Engine: Ray Traced Triangle";
 
 class RayTracedTriangle : public app::IRenderPass
 {

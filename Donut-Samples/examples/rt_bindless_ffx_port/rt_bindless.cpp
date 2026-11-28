@@ -56,7 +56,7 @@ using namespace donut::math;
 #include "lighting_cb.h"
 #include "shadow_cb.h"
 
-static const char* g_WindowTitle = "Donut Example: Bindless Ray Tracing";
+static const char* g_WindowTitle = "Threshold Engine: Bindless Ray Tracing";
 
 struct FrameConstants
 {

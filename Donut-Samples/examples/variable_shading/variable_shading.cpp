@@ -44,7 +44,7 @@ using namespace donut::math;
 
 #include "lighting_cb.h"
 
-static const char* g_WindowTitle = "Donut Example: Variable Rate Shading";
+static const char* g_WindowTitle = "Threshold Engine: Variable Rate Shading";
 
 // NVIDIA Variable Rate Shading (VRS) sample application
 // Relevant sample code is in the Render() function, marked with comments

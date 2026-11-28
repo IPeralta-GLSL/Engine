@@ -26,7 +26,7 @@ file(GLOB sources "*.cpp" "*.h")
 set(project work_graphs_d3d12)
 set(folder "Examples/Work Graphs")
 
-donut_compile_shaders(
+threshold_compile_shaders(
     TARGET ${project}_shaders
     PROJECT_NAME "Work Graphs"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
@@ -38,7 +38,7 @@ donut_compile_shaders(
 
 add_executable(${project} WIN32 ${sources})
 target_include_directories(${project} PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
-target_link_libraries(${project} donut_app donut_engine)
+target_link_libraries(${project} threshold_app threshold_engine)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 

@@ -44,7 +44,7 @@ using namespace donut::render;
 
 #include "CubeGeometry.h"
 
-static const char* g_WindowTitle = "Donut Example: Deferred Shading";
+static const char* g_WindowTitle = "Threshold Engine: Deferred Shading";
 
 class RenderTargets : public GBufferRenderTargets
 {

@@ -27,7 +27,7 @@ file(GLOB sources "*.cpp" "*.h")
 set(project basic_triangle)
 set(folder "Examples/Basic Triangle")
 
-donut_compile_shaders_all_platforms(
+threshold_compile_shaders_all_platforms(
     TARGET ${project}_shaders
     PROJECT_NAME "Basic Triangle"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders.cfg
@@ -36,7 +36,7 @@ donut_compile_shaders_all_platforms(
 )
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_app donut_engine)
+target_link_libraries(${project} threshold_app threshold_engine)
 add_dependencies(${project} ${project}_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 

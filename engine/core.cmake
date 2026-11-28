@@ -20,7 +20,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-file(GLOB donut_core_src
+file(GLOB threshold_core_src
     include/donut/core/chunk/*.h
     include/donut/core/math/*.h
     include/donut/core/vfs/TarFile.h
@@ -33,20 +33,20 @@ file(GLOB donut_core_src
     src/core/*.cpp
 )
 
-add_library(donut_core STATIC EXCLUDE_FROM_ALL ${donut_core_src})
-target_include_directories(donut_core PUBLIC include)
-target_link_libraries(donut_core jsoncpp_static)
+add_library(threshold_core STATIC EXCLUDE_FROM_ALL ${threshold_core_src})
+target_include_directories(threshold_core PUBLIC include)
+target_link_libraries(threshold_core jsoncpp_static)
 
 if(NOT WIN32)
-    target_link_libraries(donut_core stdc++fs dl pthread)
+    target_link_libraries(threshold_core stdc++fs dl pthread)
 endif()
 
 if(WIN32)
-    target_sources(donut_core PRIVATE
+    target_sources(threshold_core PRIVATE
         include/donut/core/vfs/WinResFS.h
         src/core/vfs/WinResFS.cpp
     )
-    target_compile_definitions(donut_core PUBLIC NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(threshold_core PUBLIC NOMINMAX _CRT_SECURE_NO_WARNINGS)
 endif()
 
-set_target_properties(donut_core PROPERTIES FOLDER Donut)
+set_target_properties(threshold_core PROPERTIES FOLDER Donut)

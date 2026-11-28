@@ -29,7 +29,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Vulkan Shader Specializations";
+static const char* g_WindowTitle = "Threshold Engine: Vulkan Shader Specializations";
 
 class ShaderSpecializations : public app::IRenderPass
 {

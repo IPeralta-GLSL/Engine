@@ -23,7 +23,7 @@
 file(GLOB sources "*.cpp" "*.h")
 
 add_executable(deferred_shading WIN32 ${sources})
-target_link_libraries(deferred_shading donut_render donut_app donut_engine)
+target_link_libraries(deferred_shading threshold_render threshold_app threshold_engine)
 set_target_properties(deferred_shading PROPERTIES FOLDER "Examples/Deferred Shading")
 
 if (MSVC)

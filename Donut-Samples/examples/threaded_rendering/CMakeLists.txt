@@ -26,5 +26,5 @@ set(project threaded_rendering)
 set(folder "Examples/Threaded Rendering")
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_render donut_app donut_engine)
+target_link_libraries(${project} threshold_render threshold_app threshold_engine)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})

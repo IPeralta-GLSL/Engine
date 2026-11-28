@@ -29,7 +29,7 @@
 
 using namespace donut;
 
-static const char* g_WindowTitle = "Donut Example: Meshlets";
+static const char* g_WindowTitle = "Threshold Engine: Meshlets";
 
 class MeshletExample : public app::IRenderPass
 {

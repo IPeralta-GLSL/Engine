@@ -41,7 +41,7 @@ using namespace donut::math;
 
 #include <donut/shaders/view_cb.h>
 
-static const char* g_WindowTitle = "Donut Example: Bindless Rendering";
+static const char* g_WindowTitle = "Threshold Engine: Bindless Rendering";
 
 class BindlessRendering : public app::ApplicationBase
 {

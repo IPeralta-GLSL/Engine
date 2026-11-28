@@ -1029,7 +1029,7 @@ int main(int __argc, const char** __argv)
     app::DeviceCreationParameters deviceParams;
     deviceParams.enableRayTracingExtensions = true;
     deviceParams.startMaximized = true;
-    if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, "Donut Editor"))
+    if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, "Threshold Engine Editor"))
     {
         log::fatal("Cannot initialize a graphics device");
         return 1;

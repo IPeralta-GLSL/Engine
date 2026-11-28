@@ -21,7 +21,7 @@
 
 
 add_executable(feature_demo WIN32 FeatureDemo.cpp)
-target_link_libraries(feature_demo donut_render donut_app donut_engine)
+target_link_libraries(feature_demo threshold_render threshold_app threshold_engine)
 
 set_target_properties(feature_demo PROPERTIES FOLDER "Donut Feature Demo")
 

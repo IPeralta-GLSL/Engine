@@ -38,7 +38,7 @@ using namespace donut::engine;
 using namespace donut::math;
 using Microsoft::WRL::ComPtr;
 
-static const char* g_WindowTitle = "Donut Example: Work Graphs";
+static const char* g_WindowTitle = "Threshold Engine: Work Graphs";
 #define WORKGRAPH_NAME L"D3D12WorkGraphs"
 
 

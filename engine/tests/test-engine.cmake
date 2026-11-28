@@ -20,21 +20,21 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-file(GLOB donut_engine_tests src/engine/test_*.cpp)
+file(GLOB threshold_engine_tests src/engine/test_*.cpp)
 
-foreach(test_src ${donut_engine_tests})
+foreach(test_src ${threshold_engine_tests})
 
     get_filename_component(test_name "${test_src}" NAME_WE)
     #message(STATUS "Added test ${test_name}")
 
     add_executable("${test_name}" "${test_src}")
-    target_link_libraries("${test_name}" donut_app donut_engine donut_core donut_tests_utils)
+    target_link_libraries("${test_name}" threshold_app threshold_engine threshold_core threshold_tests_utils)
 
-    add_dependencies(donut_all_tests "${test_name}")
+    add_dependencies(threshold_all_tests "${test_name}")
 
     add_test("${test_name}" "${test_name}")
 
-    set_property(TARGET "${test_name}" PROPERTY FOLDER "Donut/donut_tests/donut_engine_tests")
+    set_property(TARGET "${test_name}" PROPERTY FOLDER "Threshold/threshold_tests/threshold_engine_tests")
 
 endforeach()
 

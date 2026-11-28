@@ -42,7 +42,7 @@ using namespace donut::math;
 
 #include "lighting_cb.h"
 
-static const char* g_WindowTitle = "Donut Example: Ray Traced Reflections";
+static const char* g_WindowTitle = "Threshold Engine: Ray Traced Reflections";
 
 class RenderTargets
 {

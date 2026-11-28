@@ -22,7 +22,7 @@
 
 include(../compileshaders.cmake)
 
-file(GLOB donut_shaders
+file(GLOB threshold_shaders
 	"*.hlsl"
 	"passes/*.hlsl"
 	"../include/donut/shaders/*.hlsli"
@@ -91,14 +91,14 @@ if(DONUT_WITH_AFTERMATH OR DONUT_EMBED_SHADER_PDBS)
     set(shadermake_options --embedPDB)
 endif()
 
-donut_compile_shaders_all_platforms(
-	TARGET donut_shaders
+threshold_compile_shaders_all_platforms(
+	TARGET threshold_shaders
 	PROJECT_NAME "Donut"
 	CONFIG ${CMAKE_CURRENT_LIST_DIR}/DonutShaders.cfg
 	FOLDER Donut
 	OUTPUT_BASE ${output_base}
 	OUTPUT_FORMAT ${output_format}
-	SOURCES ${donut_shaders}
+	SOURCES ${threshold_shaders}
 	BYPRODUCTS_NO_EXT ${byproducts}
     SHADERMAKE_OPTIONS ${shadermake_options}
 )
