@@ -12,6 +12,12 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#define main rt_bindless_entry_main
+#define WinMain rt_bindless_entry_winmain
+#include "../rt_bindless/rt_bindless.cpp"
+#undef main
+#undef WinMain
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -173,6 +179,7 @@ class EditorUI : public app::ImGui_Renderer
 public:
     EditorUI(app::DeviceManager* deviceManager)
         : ImGui_Renderer(deviceManager)
+        , m_Rt(deviceManager)
     {
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -183,6 +190,7 @@ public:
     {
         if (!ImGui_Renderer::Init(shaderFactory))
             return false;
+
 
         m_VertexShader = shaderFactory->CreateShader("app/editor.hlsl", "main_vs", nullptr, nvrhi::ShaderType::Vertex);
         m_PixelShader = shaderFactory->CreateShader("app/editor.hlsl", "main_ps", nullptr, nvrhi::ShaderType::Pixel);
@@ -240,6 +248,25 @@ public:
         m_BrowseDir = m_RootDir / "stages";
         LoadStage(m_StageFile);
         RefreshContent();
+
+        std::filesystem::path modelFile = m_RootDir / "media/IntelSponza/NewSponza_Main_glTF_003.gltf";
+        for (ecs::Prim prim : m_Stage.GetPrims())
+        {
+            if (prim.HasAttribute<ecs::ModelAttribute>())
+            {
+                modelFile = m_RootDir / prim.GetAttribute<ecs::ModelAttribute>().path;
+                break;
+            }
+        }
+        m_RtReady = m_Rt.Init(false, modelFile, m_StageFile, false);
+        if (m_RtReady)
+        {
+            m_Rt.m_UpdateWindowTitle = false;
+            m_Rt.FrameCamera();
+            Log("RT viewport renderer ready (same render as engine)");
+        }
+        else
+            Log("RT renderer unavailable - using proxy fallback");
 
         return true;
     }
@@ -325,45 +352,75 @@ public:
 
     bool KeyboardUpdate(int key, int scancode, int action, int mods) override
     {
+        const bool imguiConsumed = ImGui_Renderer::KeyboardUpdate(key, scancode, action, mods);
+        if (ImGui::GetIO().WantCaptureKeyboard)
+            return true;
         if (m_ViewportHovered || m_ViewportFocused)
         {
-            m_Camera.KeyboardUpdate(key, scancode, action, mods);
+            if (m_RtReady)
+                m_Rt.KeyboardUpdate(key, scancode, action, mods);
+            else
+                m_Camera.KeyboardUpdate(key, scancode, action, mods);
             return true;
         }
-        return ImGui_Renderer::KeyboardUpdate(key, scancode, action, mods);
+        return imguiConsumed;
     }
 
     bool MousePosUpdate(double xpos, double ypos) override
     {
-        if (m_ViewportHovered || m_ViewportFocused)
+        const bool imguiConsumed = ImGui_Renderer::MousePosUpdate(xpos, ypos);
+        if (ImGui::GetIO().WantCaptureMouse)
+            return true;
+        if (m_ViewportHovered)
         {
-            m_Camera.MousePosUpdate(xpos, ypos);
+            if (m_RtReady)
+                m_Rt.MousePosUpdate(xpos, ypos);
+            else
+                m_Camera.MousePosUpdate(xpos, ypos);
             return true;
         }
-        return ImGui_Renderer::MousePosUpdate(xpos, ypos);
+        return imguiConsumed;
     }
 
     bool MouseButtonUpdate(int button, int action, int mods) override
     {
-        if (m_ViewportHovered && button == 0 && action == 1)
-            PickAtMouse();
-        if (m_ViewportHovered || m_ViewportFocused)
+        const bool imguiConsumed = ImGui_Renderer::MouseButtonUpdate(button, action, mods);
+        if (ImGui::GetIO().WantCaptureMouse)
+            return true;
+        if (m_ViewportHovered)
         {
-            m_Camera.MouseButtonUpdate(button, action, mods);
+            if (button == 0 && action == 1 && !m_RtReady)
+                PickAtMouse();
+            if (m_RtReady)
+                m_Rt.MouseButtonUpdate(button, action, mods);
+            else
+                m_Camera.MouseButtonUpdate(button, action, mods);
             return true;
         }
-        return ImGui_Renderer::MouseButtonUpdate(button, action, mods);
+        return imguiConsumed;
+    }
+
+    void BackBufferResizing() override
+    {
+        m_Pipeline = nullptr;
+        ImGui_Renderer::BackBufferResizing();
     }
 
     void Animate(float deltaT) override
     {
-        m_Camera.Animate(deltaT);
+        if (m_RtReady)
+            m_Rt.Animate(deltaT);
+        else
+            m_Camera.Animate(deltaT);
         ImGui_Renderer::Animate(deltaT);
     }
 
     void Render(nvrhi::IFramebuffer* framebuffer) override
     {
-        RenderViewport();
+        if (m_RtReady)
+            m_Rt.Render(framebuffer);
+        else
+            RenderProxies(framebuffer);
         ImGui_Renderer::Render(framebuffer);
     }
 
@@ -450,48 +507,22 @@ protected:
         }
     }
 
-    void EnsureViewport(int width, int height)
+    void RenderProxies(nvrhi::IFramebuffer* framebuffer)
     {
-        width = std::max(width, 8);
-        height = std::max(height, 8);
-        if (m_ViewportColor && m_ViewportWidth == width && m_ViewportHeight == height)
-            return;
+        const auto& fbinfo = framebuffer->getFramebufferInfo();
+        const float aspect = float(fbinfo.width) / float(fbinfo.height);
+        dm::float4x4 proj = perspProjD3DStyleReverse(dm::PI_f * 0.25f, aspect, 0.1f);
+        dm::float4x4 viewProj = affineToHomogeneous(m_Camera.GetWorldToViewMatrix()) * proj;
 
-        m_ViewportWidth = width;
-        m_ViewportHeight = height;
-        m_Pipeline = nullptr;
-
-        nvrhi::TextureDesc colorDesc;
-        colorDesc.width = width;
-        colorDesc.height = height;
-        colorDesc.format = nvrhi::Format::RGBA8_UNORM;
-        colorDesc.debugName = "EditorViewportColor";
-        colorDesc.initialState = nvrhi::ResourceStates::RenderTarget;
-        colorDesc.keepInitialState = true;
-        colorDesc.isRenderTarget = true;
-        m_ViewportColor = GetDevice()->createTexture(colorDesc);
-
-        nvrhi::TextureDesc depthDesc;
-        depthDesc.width = width;
-        depthDesc.height = height;
-        depthDesc.format = nvrhi::Format::D32;
-        depthDesc.debugName = "EditorViewportDepth";
-        depthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
-        depthDesc.keepInitialState = true;
-        depthDesc.isRenderTarget = true;
-        m_ViewportDepth = GetDevice()->createTexture(depthDesc);
-
-        nvrhi::FramebufferDesc fbDesc;
-        fbDesc.addColorAttachment(m_ViewportColor);
-        fbDesc.setDepthAttachment(m_ViewportDepth);
-        m_ViewportFramebuffer = GetDevice()->createFramebuffer(fbDesc);
-    }
-
-    void RenderViewport()
-    {
-        EnsureViewport(int(m_ViewportSize.x), int(m_ViewportSize.y));
-        if (!m_ViewportFramebuffer)
-            return;
+        dm::float4 lightDir = dm::float4(0.3f, -1.f, 0.2f, 0.f);
+        for (ecs::Prim prim : m_Stage.GetPrims())
+        {
+            if (prim.HasAttribute<ecs::DirectionalLightAttribute>())
+            {
+                lightDir = dm::float4(prim.GetAttribute<ecs::DirectionalLightAttribute>().direction, 0.f);
+                break;
+            }
+        }
 
         if (!m_Pipeline)
         {
@@ -505,21 +536,7 @@ protected:
             desc.renderState.depthStencilState.depthWriteEnable = true;
             desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
             desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
-            m_Pipeline = GetDevice()->createGraphicsPipeline(desc, m_ViewportFramebuffer->getFramebufferInfo());
-        }
-
-        const float aspect = float(m_ViewportWidth) / float(m_ViewportHeight);
-        dm::float4x4 proj = perspProjD3DStyleReverse(dm::PI_f * 0.25f, aspect, 0.1f);
-        dm::float4x4 viewProj = affineToHomogeneous(m_Camera.GetWorldToViewMatrix()) * proj;
-
-        dm::float4 lightDir = dm::float4(0.3f, -1.f, 0.2f, 0.f);
-        for (ecs::Prim prim : m_Stage.GetPrims())
-        {
-            if (prim.HasAttribute<ecs::DirectionalLightAttribute>())
-            {
-                lightDir = dm::float4(prim.GetAttribute<ecs::DirectionalLightAttribute>().direction, 0.f);
-                break;
-            }
+            m_Pipeline = GetDevice()->createGraphicsPipeline(desc, fbinfo);
         }
 
         std::vector<DrawEntry> entries;
@@ -545,16 +562,16 @@ protected:
         }
 
         m_CommandList->open();
-        nvrhi::utils::ClearColorAttachment(m_CommandList, m_ViewportFramebuffer, 0, nvrhi::Color(0.086f, 0.090f, 0.098f, 1.f));
-        nvrhi::utils::ClearDepthStencilAttachment(m_CommandList, m_ViewportFramebuffer, 0.f, 0);
+        nvrhi::utils::ClearColorAttachment(m_CommandList, framebuffer, 0, nvrhi::Color(0.086f, 0.090f, 0.098f, 1.f));
+        nvrhi::utils::ClearDepthStencilAttachment(m_CommandList, framebuffer, 0.f, 0);
 
         for (size_t i = 0; i < entries.size(); ++i)
             m_CommandList->writeBuffer(m_ConstantBuffer, &entries[i], sizeof(DrawEntry), sizeof(DrawEntry) * i);
 
         nvrhi::GraphicsState state;
         state.pipeline = m_Pipeline;
-        state.framebuffer = m_ViewportFramebuffer;
-        state.viewport.addViewportAndScissorRect(m_ViewportFramebuffer->getFramebufferInfo().getViewport());
+        state.framebuffer = framebuffer;
+        state.viewport.addViewportAndScissorRect(fbinfo.getViewport());
         state.vertexBuffers.push_back({ m_VertexBuffer, 0, 0 });
         state.indexBuffer = { m_IndexBuffer, nvrhi::Format::R16_UINT, 0 };
 
@@ -567,7 +584,6 @@ protected:
             m_CommandList->drawIndexed(args);
         }
 
-        m_CommandList->setTextureState(m_ViewportColor, nvrhi::TextureSubresourceSet(), nvrhi::ResourceStates::ShaderResource);
         m_CommandList->close();
         GetDevice()->executeCommandList(m_CommandList);
     }
@@ -615,7 +631,6 @@ protected:
             ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Left, 0.5f, &bottomLeft, &bottomRight);
             ImGui::DockBuilderDockWindow("Stage", left);
             ImGui::DockBuilderDockWindow("Attribute", right);
-            ImGui::DockBuilderDockWindow("Viewport", center);
             ImGui::DockBuilderDockWindow("Content", bottomLeft);
             ImGui::DockBuilderDockWindow("Console", bottomRight);
             ImGui::DockBuilderFinish(dock);
@@ -626,14 +641,14 @@ protected:
         DrawContentPanel();
         DrawConsolePanel();
 
-        ImGui::Begin("Viewport");
-        m_ViewportPos = ImGui::GetCursorScreenPos();
-        m_ViewportSize = ImGui::GetContentRegionAvail();
-        m_ViewportHovered = ImGui::IsWindowHovered();
-        m_ViewportFocused = ImGui::IsWindowFocused();
-        if (m_ViewportColor)
-            ImGui::Image((ImTextureID)m_ViewportColor.Get(), m_ViewportSize);
-        ImGui::End();
+        ImGuiViewport* mainVp = ImGui::GetMainViewport();
+        m_ViewportPos = mainVp->WorkPos;
+        m_ViewportSize = mainVp->WorkSize;
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const bool overWork = mouse.x >= mainVp->WorkPos.x && mouse.y >= mainVp->WorkPos.y &&
+            mouse.x <= mainVp->WorkPos.x + mainVp->WorkSize.x && mouse.y <= mainVp->WorkPos.y + mainVp->WorkSize.y;
+        m_ViewportHovered = overWork && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
+        m_ViewportFocused = m_ViewportHovered;
 
         DrawFileDialogs();
     }
@@ -938,6 +953,8 @@ protected:
     }
 
 private:
+    BindlessRayTracing m_Rt;
+    bool m_RtReady = false;
     ecs::Stage m_Stage;
     std::filesystem::path m_StageFile;
     std::filesystem::path m_RootDir;
@@ -971,9 +988,6 @@ private:
     nvrhi::BufferHandle m_IndexBuffer;
     nvrhi::GraphicsPipelineHandle m_Pipeline;
     nvrhi::CommandListHandle m_CommandList;
-    nvrhi::TextureHandle m_ViewportColor;
-    nvrhi::TextureHandle m_ViewportDepth;
-    nvrhi::FramebufferHandle m_ViewportFramebuffer;
 };
 
 #ifdef WIN32
@@ -986,6 +1000,8 @@ int main(int __argc, const char** __argv)
     app::DeviceManager* deviceManager = app::DeviceManager::Create(api);
 
     app::DeviceCreationParameters deviceParams;
+    deviceParams.enableRayTracingExtensions = true;
+    deviceParams.startMaximized = true;
     if (!deviceManager->CreateWindowDeviceAndSwapChain(deviceParams, "Donut Editor"))
     {
         log::fatal("Cannot initialize a graphics device");

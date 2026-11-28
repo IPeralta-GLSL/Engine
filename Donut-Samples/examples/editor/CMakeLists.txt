@@ -14,8 +14,9 @@ donut_compile_shaders_all_platforms(
 )
 
 add_executable(${project} WIN32 ${sources})
-target_link_libraries(${project} donut_app donut_engine donut_ecs imgui)
-add_dependencies(${project} ${project}_shaders)
+target_link_libraries(${project} donut_render donut_app donut_engine donut_ecs imgui)
+target_include_directories(${project} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../rt_bindless)
+add_dependencies(${project} ${project}_shaders rt_bindless_shaders)
 set_target_properties(${project} PROPERTIES FOLDER ${folder})
 
 if (MSVC)

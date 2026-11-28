@@ -747,6 +747,27 @@ public:
 
     void SetCmaa2Enabled(bool enabled) { m_EnableCmaa2 = enabled; }
 
+    bool m_UpdateWindowTitle = true;
+
+    void SetCameraLookAt(const dm::float3& pos, const dm::float3& target)
+    {
+        m_Camera.LookAt(pos, target);
+    }
+
+    void FrameCamera()
+    {
+        if (!m_Scene)
+            return;
+        const dm::box3 bounds = m_Scene->GetSceneGraph()->GetRootNode()->GetGlobalBoundingBox();
+        if (bounds.isempty())
+            return;
+        const dm::float3 center = bounds.center();
+        const dm::float3 size = bounds.m_maxs - bounds.m_mins;
+        const float radius = std::max(size.x, std::max(size.y, size.z));
+        m_Camera.LookAt(center + dm::float3(0.f, radius * 0.35f, -radius * 0.9f), center);
+        m_Camera.SetMoveSpeed(radius * 0.3f);
+    }
+
     ~BindlessRayTracing() override
     {
         RemoveUIRenderPass();
@@ -770,7 +791,7 @@ public:
         }
     }
 
-    bool Init(bool useRayQuery, const std::filesystem::path& sceneFileName, const std::filesystem::path& stageFileName)
+    bool Init(bool useRayQuery, const std::filesystem::path& sceneFileName, const std::filesystem::path& stageFileName, bool createStageUI = true)
     {
         std::filesystem::path frameworkShaderPath = app::GetDirectoryWithExecutable() / "shaders/framework" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
         std::filesystem::path appShaderPath = app::GetDirectoryWithExecutable() / "shaders/rt_bindless" / app::GetShaderTypeName(GetDevice()->getGraphicsAPI());
@@ -967,13 +988,16 @@ public:
             if (!m_EcsStage->Load(stageFileName))
                 log::warning("Failed to load stage '%s'", stageFileName.generic_string().c_str());
 
-            m_StageUI = std::make_shared<StagePanelUI>(GetDeviceManager(), *m_EcsStage);
-            if (!m_StageUI->Init(m_ShaderFactory))
+            if (createStageUI)
             {
-                m_StageUI.reset();
-                return false;
+                m_StageUI = std::make_shared<StagePanelUI>(GetDeviceManager(), *m_EcsStage);
+                if (!m_StageUI->Init(m_ShaderFactory))
+                {
+                    m_StageUI.reset();
+                    return false;
+                }
+                m_StageUI->SetStageFile(stageFileName);
             }
-            m_StageUI->SetStageFile(stageFileName);
         }
 
         return true;
@@ -1054,7 +1078,8 @@ public:
         }
 
         const char* extraInfo = (m_RayPipeline != nullptr) ? "- using RayPipeline" : "- using RayQuery";
-        GetDeviceManager()->SetInformativeWindowTitle(g_WindowTitle, extraInfo);
+        if (m_UpdateWindowTitle)
+            GetDeviceManager()->SetInformativeWindowTitle(g_WindowTitle, extraInfo);
     }
 
     bool CreateRayTracingPipeline(engine::ShaderFactory& shaderFactory)
