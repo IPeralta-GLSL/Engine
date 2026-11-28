@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -437,6 +438,13 @@ public:
         else
             m_Camera.GamepadUpdate(m_PadAxes[0], m_PadAxes[1], m_PadAxes[2], m_PadAxes[3], upDown, speed, deltaT);
 
+        m_TitleTimer += deltaT;
+        if (m_TitleTimer >= 0.5f)
+        {
+            m_TitleTimer = 0.f;
+            GetDeviceManager()->SetInformativeWindowTitle("Threshold Engine Editor", true, nullptr);
+        }
+
         ImGui_Renderer::Animate(deltaT);
     }
 
@@ -516,6 +524,8 @@ protected:
         entt::entity best = entt::null;
         for (ecs::Prim prim : m_Stage.GetPrims())
         {
+            if (m_Hidden.count(prim.GetEntity()))
+                continue;
             dm::float3 t, s; dm::quaternion<float> r; dm::float4 c;
             GetProxy(prim, t, r, s, c);
             float hit;
@@ -576,6 +586,8 @@ protected:
         {
             if (entries.size() >= c_MaxDraws)
                 break;
+            if (m_Hidden.count(prim.GetEntity()))
+                continue;
             dm::float3 t, s; dm::quaternion<float> r; dm::float4 c;
             GetProxy(prim, t, r, s, c);
             DrawEntry entry = {};
@@ -755,6 +767,18 @@ protected:
         }
     }
 
+    void ApplyVisibility(ecs::Prim prim, bool hidden)
+    {
+        if (!m_RtReady)
+            return;
+        if (prim.HasAttribute<ecs::ModelAttribute>())
+            m_Rt.SetModelVisible(!hidden);
+        else if (prim.HasAttribute<ecs::DirectionalLightAttribute>())
+            m_Rt.SetSunEnabled(!hidden);
+        else if (prim.HasAttribute<ecs::SkyAttribute>())
+            m_Rt.SetSkyEnabled(!hidden);
+    }
+
     void DrawStagePanel()
     {
         ImGui::Begin("Stage");
@@ -782,11 +806,37 @@ protected:
             std::string label = prim.HasAttribute<ecs::NameAttribute>()
                 ? prim.GetAttribute<ecs::NameAttribute>().value
                 : ("Prim " + std::to_string(uint32_t(prim.GetEntity())));
+            const bool hidden = m_Hidden.count(prim.GetEntity()) > 0;
+
+            ImGui::PushID(int(uint32_t(prim.GetEntity())));
+            const ImVec2 eyePos = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##eye", ImVec2(18, 18));
+            if (ImGui::IsItemClicked())
+            {
+                const bool newHidden = !hidden;
+                if (newHidden) m_Hidden.insert(prim.GetEntity());
+                else m_Hidden.erase(prim.GetEntity());
+                ApplyVisibility(prim, newHidden);
+                Log((newHidden ? "Hidden " : "Shown ") + label);
+            }
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 c = ImVec2(eyePos.x + 9, eyePos.y + 9);
+            const ImU32 eyeCol = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_CheckMark);
+            dl->AddCircle(c, 6.f, eyeCol, 12, 1.5f);
+            dl->AddCircleFilled(c, 2.5f, eyeCol, 8);
+            if (hidden)
+                dl->AddLine(ImVec2(c.x - 7, c.y + 7), ImVec2(c.x + 7, c.y - 7), eyeCol, 1.5f);
+            ImGui::SameLine();
+            if (hidden)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             if (ImGui::Selectable(label.c_str(), m_Selected == prim.GetEntity()))
             {
                 m_Selected = prim.GetEntity();
                 Log("Selected " + label);
             }
+            if (hidden)
+                ImGui::PopStyleColor();
+            ImGui::PopID();
         }
         ImGui::End();
     }
@@ -959,13 +1009,102 @@ protected:
         ImGui::End();
     }
 
+    std::vector<std::string> CommandSuggestions(const std::string& prefix)
+    {
+        std::vector<std::string> base = { "help", "clear", "list", "load ", "save", "play", "frame", "select ", "hide ", "show " };
+        std::vector<std::string> out;
+        for (const auto& b : base)
+            if (b.rfind(prefix, 0) == 0)
+                out.push_back(b);
+        const std::string sp = prefix;
+        for (const char* verb : { "select ", "hide ", "show " })
+        {
+            const std::string v = verb;
+            if (sp.rfind(v, 0) == 0)
+            {
+                const std::string arg = sp.substr(v.size());
+                for (ecs::Prim prim : m_Stage.GetPrims())
+                {
+                    std::string name = prim.HasAttribute<ecs::NameAttribute>()
+                        ? prim.GetAttribute<ecs::NameAttribute>().value
+                        : ("Prim " + std::to_string(uint32_t(prim.GetEntity())));
+                    if (name.rfind(arg, 0) == 0)
+                        out.push_back(v + name);
+                }
+            }
+        }
+        return out;
+    }
+
+    void ExecuteCommand(const std::string& line)
+    {
+        Log("> " + line);
+        const size_t sp = line.find(' ');
+        const std::string cmd = line.substr(0, sp);
+        const std::string arg = sp == std::string::npos ? "" : line.substr(sp + 1);
+
+        if (cmd == "help")
+        {
+            Log("commands: help, clear, list, load <path>, save, play, frame, select <name>, hide <name>, show <name>");
+        }
+        else if (cmd == "clear")
+        {
+            m_Log.clear();
+        }
+        else if (cmd == "list")
+        {
+            for (ecs::Prim prim : m_Stage.GetPrims())
+                Log(prim.HasAttribute<ecs::NameAttribute>() ? prim.GetAttribute<ecs::NameAttribute>().value : "unnamed");
+        }
+        else if (cmd == "load")
+        {
+            if (!arg.empty()) LoadStage(arg);
+        }
+        else if (cmd == "save")
+        {
+            SaveStage(m_StageFile);
+        }
+        else if (cmd == "play")
+        {
+            Play();
+        }
+        else if (cmd == "frame")
+        {
+            m_Rt.FrameCamera();
+        }
+        else if (cmd == "select" || cmd == "hide" || cmd == "show")
+        {
+            for (ecs::Prim prim : m_Stage.GetPrims())
+            {
+                const std::string name = prim.HasAttribute<ecs::NameAttribute>()
+                    ? prim.GetAttribute<ecs::NameAttribute>().value
+                    : ("Prim " + std::to_string(uint32_t(prim.GetEntity())));
+                if (name == arg)
+                {
+                    if (cmd == "select") { m_Selected = prim.GetEntity(); Log("Selected " + name); }
+                    else if (cmd == "hide") { m_Hidden.insert(prim.GetEntity()); ApplyVisibility(prim, true); Log("Hidden " + name); }
+                    else { m_Hidden.erase(prim.GetEntity()); ApplyVisibility(prim, false); Log("Shown " + name); }
+                    return;
+                }
+            }
+            Log("prim not found: " + arg);
+        }
+        else
+        {
+            Log("unknown command: " + cmd + " (type help)");
+        }
+    }
+
     void DrawConsolePanel()
     {
         ImGui::Begin("Console");
         if (ImGui::SmallButton("Clear"))
             m_Log.clear();
-        ImGui::Separator();
-        ImGui::BeginChild("ConsoleScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::SameLine();
+        ImGui::TextDisabled("type 'help' + Enter");
+
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.f, 0.f, 0.f, 1.f));
+        ImGui::BeginChild("ConsoleScroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true, ImGuiWindowFlags_HorizontalScrollbar);
         for (const std::string& line : m_Log)
             ImGui::TextUnformatted(line.c_str());
         if (m_LogScroll)
@@ -974,6 +1113,36 @@ protected:
             m_LogScroll = false;
         }
         ImGui::EndChild();
+        ImGui::PopStyleColor();
+
+        ImGui::PushItemWidth(-1);
+        const bool enter = ImGui::InputText("##cmd", m_ConsoleInput, sizeof(m_ConsoleInput), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::PopItemWidth();
+        const ImVec2 inputMin = ImGui::GetItemRectMin();
+        const ImVec2 inputMax = ImGui::GetItemRectMax();
+        if (enter && m_ConsoleInput[0])
+        {
+            ExecuteCommand(m_ConsoleInput);
+            m_ConsoleInput[0] = 0;
+        }
+
+        if (ImGui::IsItemActive() && m_ConsoleInput[0])
+        {
+            const auto sugg = CommandSuggestions(m_ConsoleInput);
+            if (!sugg.empty())
+            {
+                const float h = ImGui::GetTextLineHeightWithSpacing() * float(std::min<size_t>(sugg.size(), 6)) + 8;
+                ImGui::SetNextWindowPos(ImVec2(inputMin.x, inputMin.y - h));
+                ImGui::SetNextWindowSize(ImVec2(inputMax.x - inputMin.x, h));
+                ImGui::Begin("##cmdsugg", nullptr,
+                    ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoFocusOnAppearing);
+                for (const auto& s : sugg)
+                    if (ImGui::Selectable(s.c_str()))
+                        snprintf(m_ConsoleInput, sizeof(m_ConsoleInput), "%s", s.c_str());
+                ImGui::End();
+            }
+        }
         ImGui::End();
     }
 
@@ -996,6 +1165,9 @@ private:
     std::vector<std::filesystem::path> m_Models;
 
     app::FirstPersonCamera m_Camera;
+    float m_TitleTimer = 0.f;
+    char m_ConsoleInput[256] = {};
+    std::set<entt::entity> m_Hidden;
     float m_PadAxes[6] = {};
     bool m_PadButtons[16] = {};
     ImVec2 m_ViewportSize = ImVec2(800, 600);

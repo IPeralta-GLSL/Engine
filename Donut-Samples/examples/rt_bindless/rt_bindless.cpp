@@ -686,6 +686,9 @@ private:
     nvrhi::BufferHandle m_SkyCB;
     nvrhi::BufferHandle m_FrameCB;
     render::SkyParameters m_SkyParams;
+    bool m_ModelVisible = true;
+    bool m_SunEnabled = true;
+    bool m_SkyEnabled = true;
 
     nvrhi::TextureHandle m_VisHistory[2];
     nvrhi::TextureHandle m_DepthHistory[2];
@@ -758,6 +761,10 @@ public:
     {
         m_Camera.GamepadUpdate(lx, ly, rx, ry, ud, sp, dt);
     }
+
+    void SetModelVisible(bool v) { m_ModelVisible = v; }
+    void SetSunEnabled(bool v) { m_SunEnabled = v; }
+    void SetSkyEnabled(bool v) { m_SkyEnabled = v; }
 
     void FrameCamera()
     {
@@ -1253,6 +1260,8 @@ public:
 
         for (const auto& instance : m_Scene->GetSceneGraph()->GetMeshInstances())
         {
+            if (!m_ModelVisible)
+                break;
             nvrhi::rt::InstanceDesc instanceDesc;
             instanceDesc.bottomLevelAS = instance->GetMesh()->accelStruct;
             assert(instanceDesc.bottomLevelAS);
@@ -1524,11 +1533,16 @@ public:
         LightingConstants constants = {};
         constants.ambientColor = float4(0.05f);
         m_View.FillPlanarViewConstants(constants.view);
+        m_SunLight->irradiance = m_SunEnabled ? 4.f : 0.f;
         m_SunLight->FillLightConstants(constants.light);
         m_CommandList->writeBuffer(m_ConstantBuffer, &constants, sizeof(constants));
 
         ProceduralSkyShaderParameters skyParams = {};
+        const float savedSkyBrightness = m_SkyParams.brightness;
+        if (!m_SkyEnabled)
+            m_SkyParams.brightness = 0.f;
         render::SkyPass::FillShaderParameters(*m_SunLight, m_SkyParams, skyParams);
+        m_SkyParams.brightness = savedSkyBrightness;
         m_CommandList->writeBuffer(m_SkyCB, &skyParams, sizeof(skyParams));
 
         dm::affine3 worldToView = m_Camera.GetWorldToViewMatrix();
