@@ -1,0 +1,29 @@
+{
+	"name": "Curtains",
+	"attributes": {
+		"Name": {
+			"value": "Curtains"
+		},
+		"Model": {
+			"path": "media/IntelSponza/pkg_a_curtains/NewSponza_Curtains_glTF.gltf"
+		},
+		"Transform": {
+			"translation": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"rotation": [
+				0.0,
+				0.0,
+				0.0,
+				1.0
+			],
+			"scaling": [
+				1.0,
+				1.0,
+				1.0
+			]
+		}
+	}
+}

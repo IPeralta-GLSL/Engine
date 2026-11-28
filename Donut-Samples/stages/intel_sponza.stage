@@ -7,9 +7,21 @@
 					"value": "Camera"
 				},
 				"Camera": {
-					"position": [ 0.0, 1.8, 0.0 ],
-					"target": [ 1.0, 1.8, 0.0 ],
-					"up": [ 0.0, 1.0, 0.0 ],
+					"position": [
+						0.0,
+						1.8,
+						0.0
+					],
+					"target": [
+						1.0,
+						1.8,
+						0.0
+					],
+					"up": [
+						0.0,
+						1.0,
+						0.0
+					],
 					"fovDegrees": 45.0,
 					"zNear": 0.1,
 					"zFar": 1000.0
@@ -22,8 +34,16 @@
 					"value": "SunLight"
 				},
 				"DirectionalLight": {
-					"direction": [ 0.1, -1.0, -0.15 ],
-					"color": [ 1.0, 1.0, 1.0 ],
+					"direction": [
+						0.1,
+						-1.0,
+						-0.15
+					],
+					"color": [
+						1.0,
+						1.0,
+						1.0
+					],
 					"irradiance": 4.0,
 					"angularSize": 0.53
 				}
@@ -35,9 +55,21 @@
 					"value": "Sky"
 				},
 				"Sky": {
-					"skyColor": [ 0.17, 0.37, 0.65 ],
-					"horizonColor": [ 0.5, 0.7, 0.92 ],
-					"groundColor": [ 0.62, 0.59, 0.55 ],
+					"skyColor": [
+						0.17,
+						0.37,
+						0.65
+					],
+					"horizonColor": [
+						0.5,
+						0.7,
+						0.92
+					],
+					"groundColor": [
+						0.62,
+						0.59,
+						0.55
+					],
 					"brightness": 0.12,
 					"horizonSize": 30.0,
 					"glowSize": 5.0,
@@ -50,11 +82,27 @@
 			"archtype": "../archtypes/intel_sponza.archtype",
 			"attributes": {
 				"Transform": {
-					"translation": [ 0.0, 0.0, 0.0 ],
-					"rotation": [ 0.0, 0.0, 0.0, 1.0 ],
-					"scaling": [ 1.0, 1.0, 1.0 ]
+					"translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scaling": [
+						1.0,
+						1.0,
+						1.0
+					]
 				}
 			}
+		},
+		{
+			"archtype": "../archtypes/curtains.archtype"
 		}
 	]
 }

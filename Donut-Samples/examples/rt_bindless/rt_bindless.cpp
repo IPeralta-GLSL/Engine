@@ -686,7 +686,8 @@ private:
     nvrhi::BufferHandle m_SkyCB;
     nvrhi::BufferHandle m_FrameCB;
     render::SkyParameters m_SkyParams;
-    bool m_ModelVisible = true;
+    bool m_MainVisible = true;
+    bool m_CurtainsVisible = true;
     bool m_SunEnabled = true;
     bool m_SkyEnabled = true;
 
@@ -762,7 +763,8 @@ public:
         m_Camera.GamepadUpdate(lx, ly, rx, ry, ud, sp, dt);
     }
 
-    void SetModelVisible(bool v) { m_ModelVisible = v; }
+    void SetMainVisible(bool v) { m_MainVisible = v; }
+    void SetCurtainsVisible(bool v) { m_CurtainsVisible = v; }
     void SetSunEnabled(bool v) { m_SunEnabled = v; }
     void SetSkyEnabled(bool v) { m_SkyEnabled = v; }
 
@@ -1260,8 +1262,9 @@ public:
 
         for (const auto& instance : m_Scene->GetSceneGraph()->GetMeshInstances())
         {
-            if (!m_ModelVisible)
-                break;
+            const std::string nodeName = instance->GetNode()->GetName();
+            if (nodeName == "Curtains" ? !m_CurtainsVisible : !m_MainVisible)
+                continue;
             nvrhi::rt::InstanceDesc instanceDesc;
             instanceDesc.bottomLevelAS = instance->GetMesh()->accelStruct;
             assert(instanceDesc.bottomLevelAS);

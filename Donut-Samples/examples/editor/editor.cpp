@@ -251,13 +251,17 @@ public:
         LoadStage(m_StageFile);
         RefreshContent();
 
-        std::filesystem::path modelFile = m_RootDir / "media/IntelSponza/NewSponza_Main_glTF_003.gltf";
-        for (ecs::Prim prim : m_Stage.GetPrims())
+        std::filesystem::path modelFile = m_RootDir / "media/intel-sponza-curtains.scene.json";
+        if (!std::filesystem::exists(modelFile))
         {
-            if (prim.HasAttribute<ecs::ModelAttribute>())
+            modelFile = m_RootDir / "media/IntelSponza/NewSponza_Main_glTF_003.gltf";
+            for (ecs::Prim prim : m_Stage.GetPrims())
             {
-                modelFile = m_RootDir / prim.GetAttribute<ecs::ModelAttribute>().path;
-                break;
+                if (prim.HasAttribute<ecs::ModelAttribute>())
+                {
+                    modelFile = m_RootDir / prim.GetAttribute<ecs::ModelAttribute>().path;
+                    break;
+                }
             }
         }
         m_RtReady = m_Rt.Init(false, modelFile, m_StageFile, false);
@@ -773,7 +777,11 @@ protected:
         if (!m_RtReady)
             return;
         if (prim.HasAttribute<ecs::ModelAttribute>())
-            m_Rt.SetModelVisible(!hidden);
+        {
+            const bool isCurtains = prim.HasAttribute<ecs::NameAttribute>() && prim.GetAttribute<ecs::NameAttribute>().value == "Curtains";
+            if (isCurtains) m_Rt.SetCurtainsVisible(!hidden);
+            else m_Rt.SetMainVisible(!hidden);
+        }
         else if (prim.HasAttribute<ecs::DirectionalLightAttribute>())
             m_Rt.SetSunEnabled(!hidden);
         else if (prim.HasAttribute<ecs::SkyAttribute>())
